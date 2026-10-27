@@ -84,15 +84,14 @@ if historico:
     st.progress(progresso)
     st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para as despesas.")
 
-    # --- BOTÃO DE EXPORTAÇÃO CORRIGIDO ---
-    st.markdown("### 📥 Exportar Dados formatados")
-    
-    # Criar arquivo do Excel em memória de forma limpa e nativa (.xlsx)
+    # --- FUNÇÃO AUXILIAR EXCEL ---
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Entregas')
     buffer.seek(0)
-    
+
+    # --- BOTÃO DE EXPORTAÇÃO ---
+    st.markdown("### 📥 Exportar Dados Formatados")
     st.download_button(
         label="📊 Baixar Planilha para o Excel",
         data=buffer,
@@ -105,40 +104,79 @@ if historico:
     st.subheader("📋 Histórico de Lançamentos Permanentes")
     st.dataframe(df, use_container_width=True)
 
-    # --- GERENCIAMENTO (EDITAR / EXCLUIR) ---
+    # --- GERENCIAMENTO (EDITAR / EXCLUIR / EXCLUIR TUDO) ---
     st.markdown("---")
     st.subheader("⚙️ Gerenciar Entregas Lançadas")
     
-    opcoes_registro = [f"ID {idx} | {reg['Data']} | R$ {reg['Bruto (R$)']:.2f}" for idx, reg in enumerate(historico)]
-    registro_selecionado = st.selectbox("Selecione o registro que deseja alterar:", options=opcoes_registro)
+    # Abas para organizar o gerenciamento unitário e em massa
+    aba_unitario, aba_massa = st.tabs(["✏️ Alterar Item Único", "🚨 Limpar Todo o Banco"])
     
-    id_selecionado = int(registro_selecionado.split(" ")[1])
-    
-    col_ed, col_ex = st.columns(2)
-    
-    with col_ed:
-        st.markdown("**Editar Registro**")
-        novo_valor = st.number_input("Corrigir Valor Bruto (R$):", min_value=0.0, value=float(historico[id_selecionado]["Bruto (R$)"]), key="edit_val")
-        if st.button("✏️ Confirmar Alteração"):
-            ret_t = novo_valor * 0.405
-            historico[id_selecionado]["Bruto (R$)"] = round(novo_valor, 2)
-            historico[id_selecionado]["Lucro Livre (R$)"] = round(novo_valor * 0.595, 2)
-            historico[id_selecionado]["Pai (R$)"] = round(ret_t * 0.515, 2)
-            historico[id_selecionado]["Gasolina (R$)"] = round(ret_t * 0.220, 2)
-            historico[id_selecionado]["Manutenção (R$)"] = round(ret_t * 0.108, 2)
-            historico[id_selecionado]["Seguro/Reserva (R$)"] = round(ret_t * 0.157, 2)
+    with aba_unitario:
+        opcoes_registro = [f"ID {idx} | {reg['Data']} | R$ {reg['Bruto (R$)']:.2f}" for idx, reg in enumerate(historico)]
+        registro_selecionado = st.selectbox("Selecione o registro que deseja alterar:", options=opcoes_registro)
+        
+        id_selecionado = int(registro_selecionado.split(" ")[1])
+        
+        col_ed, col_ex = st.columns(2)
+        
+        with col_ed:
+            st.markdown("**Editar Registro**")
+            novo_valor = st.number_input("Corrigir Valor Bruto (R$):", min_value=0.0, value=float(historico[id_selecionado]["Bruto (R$)"]), key="edit_val")
+            if st.button("✏️ Confirmar Alteração"):
+                ret_t = novo_valor * 0.405
+                historico[id_selecionado]["Bruto (R$)"] = round(novo_valor, 2)
+                historico[id_selecionado]["Lucro Livre (R$)"] = round(novo_valor * 0.595, 2)
+                historico[id_selecionado]["Pai (R$)"] = round(ret_t * 0.515, 2)
+                historico[id_selecionado]["Gasolina (R$)"] = round(ret_t * 0.220, 2)
+                historico[id_selecionado]["Manutenção (R$)"] = round(ret_t * 0.108, 2)
+                historico[id_selecionado]["Seguro/Reserva (R$)"] = round(ret_t * 0.157, 2)
+                
+                salvar_banco(historico)
+                st.success("Registro atualizado com sucesso!")
+                st.rerun()
+                
+        with col_ex:
+            st.markdown("**Excluir Registro**")
+            st.warning("Esta ação removerá apenas o ID selecionado.")
+            if st.button("🗑️ Excluir Item"):
+                historico.pop(id_selecionado)
+                salvar_banco(historico)
+                st.success("Registro apagado!")
+                st.rerun()
+                
+    with aba_massa:
+        st.markdown("### 🚨 Exclusão Geral do Histórico")
+        st.write("Clique abaixo para abrir as opções de exclusão completa dos registros.")
+        
+        if st.checkbox("⚠️ Quero apagar todos os dados acumulados"):
+            st.error("❓ Deseja excluir tudo permanentemente?")
             
-            salvar_banco(historico)
-            st.success("Registro atualizado com sucesso!")
-            st.rerun()
+            # Customização visual dos botões usando colunas
+            col_b1, col_b2 = st.columns(2)
             
-    with col_ex:
-        st.markdown("**Excluir Registro**")
-        st.warning("Esta ação não pode ser desfeita.")
-        if st.button("🗑️ Excluir permanentemente"):
-            historico.pop(id_selecionado)
-            salvar_banco(historico)
-            st.success("Registro apagado do banco de dados!")
-            st.rerun()
+            with col_b1:
+                # Estilização do botão SIM via Markdown/HTML nativo do Streamlit para ficar vermelho
+                st.markdown("""
+                    <style>
+                    div.stButton > button:first-child {
+                        background-color: #d9534f;
+                        color: white;
+                    }
+                    </style>""", unsafe_allow_html=True)
+                if st.button("🔴 SIM (Apagar Tudo)"):
+                    if os.path.exists(ARQUIVO_BD):
+                        os.remove(ARQUIVO_BD)
+                    st.success("Todos os registros foram excluídos permanentemente!")
+                    st.rerun()
+                    
+            with col_b2:
+                # Botão verde para salvar o backup antes de limpar
+                st.download_button(
+                    label="🟢 SALVAR (Baixar Planilha Backup)",
+                    data=buffer,
+                    file_name=f"backup_entregas_bajaj_{datetime.now().strftime('%d_%m_%Y')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_salvar_massa"
+                )
 else:
     st.info("Nenhuma entrega lançada ainda. Digite um valor acima para criar os primeiros registros permanentes!")
