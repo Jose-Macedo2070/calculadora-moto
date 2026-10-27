@@ -1,32 +1,40 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import json
+import os
 from datetime import datetime
 
 # Configuração da página para formato Mobile
 st.set_page_config(page_title="Finanças Bajaj", page_icon="🏍️", layout="centered")
 
 st.title("🏍️ Gestão Financeira - Bajaj Dominar 200")
-st.caption("Banco de Dados na Nuvem (Google Sheets) | Retenção: 40,5%")
+st.caption("Cenário 41 Meses e 20 Dias | Retenção: 40,5%")
 
-# Estabelece a conexão com o Google Sheets utilizando os Secrets do Streamlit
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    # Lê os dados existentes na planilha
-    df_historico = conn.read(ttl="0d") # ttl="0d" força o app a buscar os dados em tempo real
-except Exception as e:
-    st.error("Erro ao conectar com o Google Sheets. Verifique as configurações de credenciais.")
-    df_historico = pd.DataFrame()
+# Banco de dados local em formato texto estruturado permanente
+ARQUIVO_BD = "banco_entregas_bajaj.json"
+
+def carregar_banco():
+    if os.path.exists(ARQUIVO_BD):
+        with open(ARQUIVO_BD, "r") as f:
+            return json.load(f)
+    return []
+
+def salvar_banco(dados):
+    with open(ARQUIVO_BD, "w") as f:
+        json.dump(dados, f, indent=4)
+
+# Carrega os lançamentos anteriores
+historico = carregar_banco()
 
 # --- FORMULÁRIO DE ENTRADA ---
 st.subheader("📥 Lançar Nova Corrida/Turno")
 with st.form("nova_entrega", clear_on_submit=True):
     valor_bruto = st.number_input("Valor Bruto Recebido (R$):", min_value=0.0, step=5.0, format="%.2f")
     data_entrega = st.date_input("Data:", datetime.now())
-    submetido = st.form_submit_button("Calcular e Salvar na Nuvem")
+    submetido = st.form_submit_button("Calcular e Salvar Permanentemente")
 
     if submetido and valor_bruto > 0:
-        # Lógica exata das porcentagens acordadas
+        # Lógica das porcentagens acordadas
         retencao_total = valor_bruto * 0.405
         lucro_livre = valor_bruto * 0.595
         
@@ -36,58 +44,51 @@ with st.form("nova_entrega", clear_on_submit=True):
         manutencao = retencao_total * 0.108
         seguro_reserva = retencao_total * 0.157
         
-        # Nova linha formatada para a planilha
-        nova_linha = pd.DataFrame([{
+        novo_registro = {
             "Data": data_entrega.strftime("%d/%m/%Y"),
-            "Bruto": round(valor_bruto, 2),
-            "Lucro_Livre": round(lucro_livre, 2),
-            "Pai": round(pai, 2),
-            "Gasolina": round(gasolina, 2),
-            "Manutencao": round(manutencao, 2),
-            "Seguro_Reserva": round(seguro_reserva, 2)
-        }])
+            "Bruto (R$)": round(valor_bruto, 2),
+            "Lucro Livre (R$)": round(lucro_livre, 2),
+            "Pai (R$)": round(pai, 2),
+            "Gasolina (R$)": round(gasolina, 2),
+            "Manutenção (R$)": round(manutencao, 2),
+            "Seguro/Reserva (R$)": round(seguro_reserva, 2)
+        }
         
-        # Junta os dados antigos com a nova linha
-        df_atualizado = pd.concat([df_historico, nova_linha], ignore_index=True)
-        
-        # Salva de volta na planilha do Google Drive
-        conn.update(data=df_atualizado)
-        st.success(f"R$ {valor_bruto:.2f} gravado diretamente no Google Sheets!")
+        historico.append(novo_registro)
+        salvar_banco(historico)
+        st.success(f"Lançamento de R$ {valor_bruto:.2f} gravado com sucesso!")
         st.rerun()
 
 # --- DASHBOARD DE ACUMULADOS ---
-if df_historico is not None and not df_historico.empty:
+if historico:
+    df = pd.DataFrame(historico)
+    
     st.markdown("---")
-    st.subheader("📊 Painel Geral Acumulado (Nuvem)")
+    st.subheader("📊 Painel Geral Acumulado")
     
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Faturamento Bruto Total", f"R$ {pd.to_numeric(df_historico['Bruto']).sum():.2f}")
+        st.metric("Faturamento Bruto Total", f"R$ {df['Bruto (R$)'].sum():.2f}")
     with col2:
-        st.metric("🟢 Seu Lucro Livre Total (59,5%)", f"R$ {pd.to_numeric(df_historico['Lucro_Livre']).sum():.2f}")
+        st.metric("🟢 Seu Lucro Livre Total (59,5%)", f"R$ {df['Lucro Livre (R$)'].sum():.2f}")
         
     st.markdown("### 🔒 Divisão de Caixinhas Reservadas (40,5%)")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("👴🏼 Pai", f"R$ {pd.to_numeric(df_historico['Pai']).sum():.2f}")
-    c2.metric("⛽ Gasolina", f"R$ {pd.to_numeric(df_historico['Gasolina']).sum():.2f}")
-    c3.metric("🛠️ Mecânica", f"R$ {pd.to_numeric(df_historico['Manutencao']).sum():.2f}")
-    c4.metric("🛡️ Seguro", f"R$ {pd.to_numeric(df_historico['Seguro_Reserva']).sum():.2f}")
+    c1.metric("👴🏼 Pai", f"R$ {df['Pai (R$)'].sum():.2f}")
+    c2.metric("⛽ Gasolina", f"R$ {df['Gasolina (R$)'].sum():.2f}")
+    c3.metric("🛠️ Mecânica", f"R$ {df['Manutenção (R$)'].sum():.2f}")
+    c4.metric("🛡️ Seguro", f"R$ {df['Seguro/Reserva (R$)'].sum():.2f}")
     
-    # Cálculo da meta semanal
-    custo_acumulado = (pd.to_numeric(df_historico['Pai']).sum() + 
-                       pd.to_numeric(df_historico['Gasolina']).sum() + 
-                       pd.to_numeric(df_historico['Manutencao']).sum() + 
-                       pd.to_numeric(df_historico['Seguro_Reserva']).sum())
-    
+    # Meta semanal de custos fixos (R$ 242,00)
+    custo_acumulado = df['Pai (R$)'].sum() + df['Gasolina (R$)'].sum() + df['Manutenção (R$)'].sum() + df['Seguro/Reserva (R$)'].sum()
     st.markdown("### 📈 Progresso de Custos Fixos (Meta Semanal: R$ 242,00)")
-    progresso = min(custo_acumulado / 242.0, 1.0) if custo_acumulado > 0 else 0.0
+    progresso = min(float(custo_acumulado / 242.0), 1.0) if custo_acumulado > 0 else 0.0
     st.progress(progresso)
-    st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} arrecadados na nuvem.")
+    st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para manter a moto e o pagamento do seu pai em dia.")
 
     # --- HISTÓRICO VISUAL ---
     st.markdown("---")
-    st.subheader("📋 Histórico de Lançamentos Sincronizados")
-    st.dataframe(df_historico, use_container_width=True)
+    st.subheader("📋 Histórico de Lançamentos Permanentes")
+    st.dataframe(df, use_container_width=True)
 else:
-    st.info("A planilha do Google Sheets está vazia ou carregando dados...")
-
+    st.info("Nenhuma entrega lançada ainda. Digite um valor acima para ver o painel automático!")
