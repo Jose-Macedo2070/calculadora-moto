@@ -35,41 +35,35 @@ def gerar_excel_estetico(dataframe):
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         dataframe.to_excel(writer, index=False, sheet_name='Entregas')
         
-        # Acessa a estrutura do openpyxl para aplicar os estilos visuais
         workbook = writer.book
         worksheet = writer.sheets['Entregas']
         
-        # Definição dos estilos estéticos
-        cor_cabecalho = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid") # Azul Escuro
+        cor_cabecalho = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid")
         fonte_cabecalho = Font(name="Arial", size=11, bold=True, color="FFFFFF")
         fonte_dados = Font(name="Arial", size=10, color="000000")
         alinhamento_centro = Alignment(horizontal="center", vertical="center")
         
-        # Bordas finas para dividir bem todas as seções e células
         borda_fina = Side(border_style="thin", color="D3D3D3")
         estilo_borda = Border(left=borda_fina, right=borda_fina, top=borda_fina, bottom=borda_fina)
         
-        # Aplicando estilos na linha do cabeçalho
-        for cell in worksheet[1]:
-            cell.fill = cor_cabecalho
-            cell.font = fonte_cabecalho
-            cell.alignment = alinhamento_centro
-            cell.border = estilo_borda
+        for row in worksheet.iter_rows(min_row=1, max_row=1, min_col=1, max_col=worksheet.max_column):
+            for cell in row:
+                cell.fill = cor_cabecalho
+                cell.font = fonte_cabecalho
+                cell.alignment = alinhamento_centro
+                cell.border = estilo_borda
             
-        # Aplicando estilos nas linhas de dados
         for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, min_col=1, max_col=worksheet.max_column):
             for cell in row:
                 cell.font = fonte_dados
                 cell.alignment = alinhamento_centro
                 cell.border = estilo_borda
-                # Formatação numérica para dinheiro nas colunas financeiras
                 if cell.column > 1:
                     cell.number_format = 'R$ #,##0.00'
         
-        # Ajuste automático do tamanho das colunas para não cortar nenhum dado
         for col in worksheet.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
-            col_letter = get_column_letter(col[0].column)
+            col_letter = get_column_letter(col.column)
             worksheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
             
     buffer.seek(0)
@@ -159,7 +153,8 @@ if historico:
         opcoes_registro = [f"ID {idx} | {reg['Data']} | R$ {reg['Bruto (R$)']:.2f}" for idx, reg in enumerate(historico)]
         registro_selecionado = st.selectbox("Selecione o registro que deseja alterar:", options=opcoes_registro)
         
-        id_selecionado = int(registro_selecionado.split(" "))
+        # --- LINHA CORRIGIDA AQUI ---
+        id_selecionado = int(registro_selecionado.split(" ")[1])
         
         col_ed, col_ex = st.columns(2)
         
@@ -176,7 +171,7 @@ if historico:
                 historico[id_selecionado]["Seguro/Reserva (R$)"] = round(ret_t * 0.157, 2)
                 
                 salvar_banco(historico)
-                st.success("Registro updated!")
+                st.success("Registro atualizado!")
                 st.rerun()
                 
         with col_ex:
