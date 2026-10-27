@@ -16,17 +16,28 @@ st.caption("Cenário 41 Meses e 20 Dias | Retenção: 40,5%")
 # Banco de dados local em formato texto estruturado permanente
 ARQUIVO_BD = "banco_entregas_bajaj.json"
 
+# --- FUNÇÃO DE LEITURA COM CORREÇÃO AUTOMÁTICA DE DADOS ANTIGOS ---
 def carregar_banco():
     if os.path.exists(ARQUIVO_BD):
         with open(ARQUIVO_BD, "r") as f:
-            return json.load(f)
+            dados = json.load(f)
+        
+        # Correção segura: se existirem registros antigos sem a nova coluna, calcula dinamicamente
+        for registro in dados:
+            if "Despesas Gerais (R$)" not in registro:
+                pai = registro.get("Pai (R$)", 0.0)
+                gasolina = registro.get("Gasolina (R$)", 0.0)
+                manutencao = registro.get("Manutenção (R$)", 0.0)
+                seguro = registro.get("Seguro/Reserva (R$)", 0.0)
+                registro["Despesas Gerais (R$)"] = round(pai + gasolina + manutencao + seguro, 2)
+        return dados
     return []
 
 def salvar_banco(dados):
     with open(ARQUIVO_BD, "w") as f:
         json.dump(dados, f, indent=4)
 
-# Carrega os lançamentos anteriores
+# Carrega os lançamentos anteriores com a checagem segura aplicada
 historico = carregar_banco()
 
 # --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO ---
@@ -63,7 +74,7 @@ def gerar_excel_estetico(dataframe):
         
         for col in worksheet.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
-            col_letter = get_column_letter(col[0].column)
+            col_letter = get_column_letter(col.column)
             worksheet.column_dimensions[col_letter].width = max(max_len + 4, 15)
             
     buffer.seek(0)
@@ -158,7 +169,7 @@ if historico:
         opcoes_registro = [f"ID {idx} | {reg['Data']} | R$ {reg['Bruto (R$)']:.2f}" for idx, reg in enumerate(historico)]
         registro_selecionado = st.selectbox("Selecione o registro que deseja alterar:", options=opcoes_registro)
         
-        id_selecionado = int(registro_selecionado.split(" ")[1])
+        id_selecionado = int(registro_selecionado.split(" "))
         
         col_ed, col_ex = st.columns(2)
         
@@ -220,10 +231,3 @@ if historico:
             with col_b2:
                 st.download_button(
                     label="🟢 SALVAR (Baixar Planilha Backup)",
-                    data=excel_estetico,
-                    file_name=f"backup_entregas_bajaj_{datetime.now().strftime('%d_%m_%Y')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_salvar_massa"
-                )
-else:
-    st.info("Nenhuma entrega lançada ainda. Digite um valor acima para criar os primeiros registros permanentes!")
