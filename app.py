@@ -29,7 +29,7 @@ def salvar_banco(dados):
 # Carrega os lançamentos anteriores
 historico = carregar_banco()
 
-# --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO CORRIGIDA ---
+# --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO ---
 def gerar_excel_estetico(dataframe):
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -64,7 +64,7 @@ def gerar_excel_estetico(dataframe):
         for col in worksheet.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = get_column_letter(col[0].column)
-            worksheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
+            worksheet.column_dimensions[col_letter].width = max(max_len + 4, 15)
             
     buffer.seek(0)
     return buffer
@@ -84,6 +84,7 @@ with st.form("nova_entrega", clear_on_submit=True):
         gasolina = retencao_total * 0.220
         manutencao = retencao_total * 0.108
         seguro_reserva = retencao_total * 0.157
+        despesas_gerais = pai + gasolina + manutencao + seguro_reserva
         
         novo_registro = {
             "Data": data_entrega.strftime("%d/%m/%Y"),
@@ -92,7 +93,8 @@ with st.form("nova_entrega", clear_on_submit=True):
             "Pai (R$)": round(pai, 2),
             "Gasolina (R$)": round(gasolina, 2),
             "Manutenção (R$)": round(manutencao, 2),
-            "Seguro/Reserva (R$)": round(seguro_reserva, 2)
+            "Seguro/Reserva (R$)": round(seguro_reserva, 2),
+            "Despesas Gerais (R$)": round(despesas_gerais, 2)
         }
         
         historico.append(novo_registro)
@@ -120,11 +122,14 @@ if historico:
     c3.metric("🛠️ Mecânica", f"R$ {df['Manutenção (R$)'].sum():.2f}")
     c4.metric("🛡️ Seguro", f"R$ {df['Seguro/Reserva (R$)'].sum():.2f}")
     
-    custo_acumulado = df['Pai (R$)'].sum() + df['Gasolina (R$)'].sum() + df['Manutenção (R$)'].sum() + df['Seguro/Reserva (R$)'].sum()
+    st.markdown("### 🧮 Total de Custos Retidos")
+    st.metric("📊 Despesas Gerais Acumuladas", f"R$ {df['Despesas Gerais (R$)'].sum():.2f}")
+    
+    custo_acumulado = df['Despesas Gerais (R$)'].sum()
     st.markdown("### 📈 Progresso de Custos Fixos (Meta Semanal: R$ 242,00)")
     progresso = min(float(custo_acumulado / 242.0), 1.0) if custo_acumulado > 0 else 0.0
     st.progress(progresso)
-    st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para as despesas.")
+    st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para cobrir as despesas obrigatórias.")
 
     # --- GERAR EXCEL DESIGNED ---
     excel_estetico = gerar_excel_estetico(df)
@@ -162,12 +167,19 @@ if historico:
             novo_valor = st.number_input("Corrigir Valor Bruto (R$):", min_value=0.0, value=float(historico[id_selecionado]["Bruto (R$)"]), key="edit_val")
             if st.button("✏️ Confirmar Alteração"):
                 ret_t = novo_valor * 0.405
+                p_pai = ret_t * 0.515
+                p_gas = ret_t * 0.220
+                p_man = ret_t * 0.108
+                p_seg = ret_t * 0.157
+                p_desp = p_pai + p_gas + p_man + p_seg
+                
                 historico[id_selecionado]["Bruto (R$)"] = round(novo_valor, 2)
                 historico[id_selecionado]["Lucro Livre (R$)"] = round(novo_valor * 0.595, 2)
-                historico[id_selecionado]["Pai (R$)"] = round(ret_t * 0.515, 2)
-                historico[id_selecionado]["Gasolina (R$)"] = round(ret_t * 0.220, 2)
-                historico[id_selecionado]["Manutenção (R$)"] = round(ret_t * 0.108, 2)
-                historico[id_selecionado]["Seguro/Reserva (R$)"] = round(ret_t * 0.157, 2)
+                historico[id_selecionado]["Pai (R$)"] = round(p_pai, 2)
+                historico[id_selecionado]["Gasolina (R$)"] = round(p_gas, 2)
+                historico[id_selecionado]["Manutenção (R$)"] = round(p_man, 2)
+                historico[id_selecionado]["Seguro/Reserva (R$)"] = round(p_seg, 2)
+                historico[id_selecionado]["Despesas Gerais (R$)"] = round(p_desp, 2)
                 
                 salvar_banco(historico)
                 st.success("Registro atualizado!")
