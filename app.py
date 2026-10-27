@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
+from io import BytesIO
 
 # Configuração da página para formato Mobile
 st.set_page_config(page_title="Finanças Bajaj", page_icon="🏍️", layout="centered")
@@ -34,11 +35,9 @@ with st.form("nova_entrega", clear_on_submit=True):
     submetido = st.form_submit_button("Calcular e Salvar Permanentemente")
 
     if submetido and valor_bruto > 0:
-        # Lógica das porcentagens acordadas
         retencao_total = valor_bruto * 0.405
         lucro_livre = valor_bruto * 0.595
         
-        # Divisão interna dos 40,5%
         pai = retencao_total * 0.515
         gasolina = retencao_total * 0.220
         manutencao = retencao_total * 0.108
@@ -79,16 +78,67 @@ if historico:
     c3.metric("🛠️ Mecânica", f"R$ {df['Manutenção (R$)'].sum():.2f}")
     c4.metric("🛡️ Seguro", f"R$ {df['Seguro/Reserva (R$)'].sum():.2f}")
     
-    # Meta semanal de custos fixos (R$ 242,00)
     custo_acumulado = df['Pai (R$)'].sum() + df['Gasolina (R$)'].sum() + df['Manutenção (R$)'].sum() + df['Seguro/Reserva (R$)'].sum()
     st.markdown("### 📈 Progresso de Custos Fixos (Meta Semanal: R$ 242,00)")
     progresso = min(float(custo_acumulado / 242.0), 1.0) if custo_acumulado > 0 else 0.0
     st.progress(progresso)
-    st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para manter a moto e o pagamento do seu pai em dia.")
+    st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para as despesas.")
+
+    # --- BOTÃO DE EXPORTAÇÃO CORRIGIDO ---
+    st.markdown("### 📥 Exportar Dados formatados")
+    
+    # Criar arquivo do Excel em memória de forma limpa e nativa (.xlsx)
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Entregas')
+    buffer.seek(0)
+    
+    st.download_button(
+        label="📊 Baixar Planilha para o Excel",
+        data=buffer,
+        file_name=f"financeiro_bajaj_{datetime.now().strftime('%m_%Y')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
     # --- HISTÓRICO VISUAL ---
     st.markdown("---")
     st.subheader("📋 Histórico de Lançamentos Permanentes")
     st.dataframe(df, use_container_width=True)
+
+    # --- GERENCIAMENTO (EDITAR / EXCLUIR) ---
+    st.markdown("---")
+    st.subheader("⚙️ Gerenciar Entregas Lançadas")
+    
+    opcoes_registro = [f"ID {idx} | {reg['Data']} | R$ {reg['Bruto (R$)']:.2f}" for idx, reg in enumerate(historico)]
+    registro_selecionado = st.selectbox("Selecione o registro que deseja alterar:", options=opcoes_registro)
+    
+    id_selecionado = int(registro_selecionado.split(" ")[1])
+    
+    col_ed, col_ex = st.columns(2)
+    
+    with col_ed:
+        st.markdown("**Editar Registro**")
+        novo_valor = st.number_input("Corrigir Valor Bruto (R$):", min_value=0.0, value=float(historico[id_selecionado]["Bruto (R$)"]), key="edit_val")
+        if st.button("✏️ Confirmar Alteração"):
+            ret_t = novo_valor * 0.405
+            historico[id_selecionado]["Bruto (R$)"] = round(novo_valor, 2)
+            historico[id_selecionado]["Lucro Livre (R$)"] = round(novo_valor * 0.595, 2)
+            historico[id_selecionado]["Pai (R$)"] = round(ret_t * 0.515, 2)
+            historico[id_selecionado]["Gasolina (R$)"] = round(ret_t * 0.220, 2)
+            historico[id_selecionado]["Manutenção (R$)"] = round(ret_t * 0.108, 2)
+            historico[id_selecionado]["Seguro/Reserva (R$)"] = round(ret_t * 0.157, 2)
+            
+            salvar_banco(historico)
+            st.success("Registro atualizado com sucesso!")
+            st.rerun()
+            
+    with col_ex:
+        st.markdown("**Excluir Registro**")
+        st.warning("Esta ação não pode ser desfeita.")
+        if st.button("🗑️ Excluir permanentemente"):
+            historico.pop(id_selecionado)
+            salvar_banco(historico)
+            st.success("Registro apagado do banco de dados!")
+            st.rerun()
 else:
-    st.info("Nenhuma entrega lançada ainda. Digite um valor acima para ver o painel automático!")
+    st.info("Nenhuma entrega lançada ainda. Digite um valor acima para criar os primeiros registros permanentes!")
