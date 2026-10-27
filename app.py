@@ -4,6 +4,8 @@ import json
 import os
 from datetime import datetime
 from io import BytesIO
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # Configuração da página para formato Mobile
 st.set_page_config(page_title="Finanças Bajaj", page_icon="🏍️", layout="centered")
@@ -26,6 +28,52 @@ def salvar_banco(dados):
 
 # Carrega os lançamentos anteriores
 historico = carregar_banco()
+
+# --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO ---
+def gerar_excel_estetico(dataframe):
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        dataframe.to_excel(writer, index=False, sheet_name='Entregas')
+        
+        # Acessa a estrutura do openpyxl para aplicar os estilos visuais
+        workbook = writer.book
+        worksheet = writer.sheets['Entregas']
+        
+        # Definição dos estilos estéticos
+        cor_cabecalho = PatternFill(start_color="1B365D", end_color="1B365D", fill_type="solid") # Azul Escuro
+        fonte_cabecalho = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+        fonte_dados = Font(name="Arial", size=10, color="000000")
+        alinhamento_centro = Alignment(horizontal="center", vertical="center")
+        
+        # Bordas finas para dividir bem todas as seções e células
+        borda_fina = Side(border_style="thin", color="D3D3D3")
+        estilo_borda = Border(left=borda_fina, right=borda_fina, top=borda_fina, bottom=borda_fina)
+        
+        # Aplicando estilos na linha do cabeçalho
+        for cell in worksheet[1]:
+            cell.fill = cor_cabecalho
+            cell.font = fonte_cabecalho
+            cell.alignment = alinhamento_centro
+            cell.border = estilo_borda
+            
+        # Aplicando estilos nas linhas de dados
+        for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, min_col=1, max_col=worksheet.max_column):
+            for cell in row:
+                cell.font = fonte_dados
+                cell.alignment = alinhamento_centro
+                cell.border = estilo_borda
+                # Formatação numérica para dinheiro nas colunas financeiras
+                if cell.column > 1:
+                    cell.number_format = 'R$ #,##0.00'
+        
+        # Ajuste automático do tamanho das colunas para não cortar nenhum dado
+        for col in worksheet.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            worksheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
+            
+    buffer.seek(0)
+    return buffer
 
 # --- FORMULÁRIO DE ENTRADA ---
 st.subheader("📥 Lançar Nova Corrida/Turno")
@@ -84,17 +132,14 @@ if historico:
     st.progress(progresso)
     st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para as despesas.")
 
-    # --- FUNÇÃO AUXILIAR EXCEL ---
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Entregas')
-    buffer.seek(0)
+    # --- GERAR EXCEL DESIGNED ---
+    excel_estetico = gerar_excel_estetico(df)
 
     # --- BOTÃO DE EXPORTAÇÃO ---
     st.markdown("### 📥 Exportar Dados Formatados")
     st.download_button(
         label="📊 Baixar Planilha para o Excel",
-        data=buffer,
+        data=excel_estetico,
         file_name=f"financeiro_bajaj_{datetime.now().strftime('%m_%Y')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -108,14 +153,13 @@ if historico:
     st.markdown("---")
     st.subheader("⚙️ Gerenciar Entregas Lançadas")
     
-    # Abas para organizar o gerenciamento unitário e em massa
     aba_unitario, aba_massa = st.tabs(["✏️ Alterar Item Único", "🚨 Limpar Todo o Banco"])
     
     with aba_unitario:
         opcoes_registro = [f"ID {idx} | {reg['Data']} | R$ {reg['Bruto (R$)']:.2f}" for idx, reg in enumerate(historico)]
         registro_selecionado = st.selectbox("Selecione o registro que deseja alterar:", options=opcoes_registro)
         
-        id_selecionado = int(registro_selecionado.split(" ")[1])
+        id_selecionado = int(registro_selecionado.split(" "))
         
         col_ed, col_ex = st.columns(2)
         
@@ -132,7 +176,7 @@ if historico:
                 historico[id_selecionado]["Seguro/Reserva (R$)"] = round(ret_t * 0.157, 2)
                 
                 salvar_banco(historico)
-                st.success("Registro atualizado com sucesso!")
+                st.success("Registro updated!")
                 st.rerun()
                 
         with col_ex:
@@ -151,11 +195,9 @@ if historico:
         if st.checkbox("⚠️ Quero apagar todos os dados acumulados"):
             st.error("❓ Deseja excluir tudo permanentemente?")
             
-            # Customização visual dos botões usando colunas
             col_b1, col_b2 = st.columns(2)
             
             with col_b1:
-                # Estilização do botão SIM via Markdown/HTML nativo do Streamlit para ficar vermelho
                 st.markdown("""
                     <style>
                     div.stButton > button:first-child {
@@ -166,14 +208,13 @@ if historico:
                 if st.button("🔴 SIM (Apagar Tudo)"):
                     if os.path.exists(ARQUIVO_BD):
                         os.remove(ARQUIVO_BD)
-                    st.success("Todos os registros foram excluídos permanentemente!")
+                    st.success("Todos os registros foram excluídos!")
                     st.rerun()
                     
             with col_b2:
-                # Botão verde para salvar o backup antes de limpar
                 st.download_button(
                     label="🟢 SALVAR (Baixar Planilha Backup)",
-                    data=buffer,
+                    data=excel_estetico,
                     file_name=f"backup_entregas_bajaj_{datetime.now().strftime('%d_%m_%Y')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="btn_salvar_massa"
