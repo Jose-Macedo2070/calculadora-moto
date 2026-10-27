@@ -29,7 +29,7 @@ def salvar_banco(dados):
 # Carrega os lançamentos anteriores
 historico = carregar_banco()
 
-# --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO ---
+# --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO CORRIGIDA ---
 def gerar_excel_estetico(dataframe):
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -46,12 +46,12 @@ def gerar_excel_estetico(dataframe):
         borda_fina = Side(border_style="thin", color="D3D3D3")
         estilo_borda = Border(left=borda_fina, right=borda_fina, top=borda_fina, bottom=borda_fina)
         
-        for row in worksheet.iter_rows(min_row=1, max_row=1, min_col=1, max_col=worksheet.max_column):
-            for cell in row:
-                cell.fill = cor_cabecalho
-                cell.font = fonte_cabecalho
-                cell.alignment = alinhamento_centro
-                cell.border = estilo_borda
+        for col_idx in range(1, worksheet.max_column + 1):
+            cell = worksheet.cell(row=1, column=col_idx)
+            cell.fill = cor_cabecalho
+            cell.font = fonte_cabecalho
+            cell.alignment = alinhamento_centro
+            cell.border = estilo_borda
             
         for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, min_col=1, max_col=worksheet.max_column):
             for cell in row:
@@ -63,7 +63,7 @@ def gerar_excel_estetico(dataframe):
         
         for col in worksheet.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
-            col_letter = get_column_letter(col.column)
+            col_letter = get_column_letter(col[0].column)
             worksheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
             
     buffer.seek(0)
@@ -153,7 +153,6 @@ if historico:
         opcoes_registro = [f"ID {idx} | {reg['Data']} | R$ {reg['Bruto (R$)']:.2f}" for idx, reg in enumerate(historico)]
         registro_selecionado = st.selectbox("Selecione o registro que deseja alterar:", options=opcoes_registro)
         
-        # --- LINHA CORRIGIDA AQUI ---
         id_selecionado = int(registro_selecionado.split(" ")[1])
         
         col_ed, col_ex = st.columns(2)
