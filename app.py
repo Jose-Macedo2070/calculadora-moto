@@ -169,7 +169,7 @@ if historico:
         opcoes_registro = [f"ID {idx} | {reg['Data']} | R$ {reg['Bruto (R$)']:.2f}" for idx, reg in enumerate(historico)]
         registro_selecionado = st.selectbox("Selecione o registro que deseja alterar:", options=opcoes_registro)
         
-        id_selecionado = int(registro_selecionado.split(" "))
+        id_selecionado = int(registro_selecionado.split(" ")[1])
         
         col_ed, col_ex = st.columns(2)
         
