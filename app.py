@@ -29,7 +29,7 @@ def salvar_banco(dados):
 # Carrega os lançamentos anteriores
 historico = carregar_banco()
 
-# --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO CORRIGIDA ---
+# --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO ---
 def gerar_excel_estetico(dataframe):
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -80,10 +80,6 @@ with st.form("nova_entrega", clear_on_submit=True):
         retencao_total = valor_bruto * 0.405
         lucro_livre = valor_bruto * 0.595
         
-        # Recalibrado para a meta de R$ 1.000,00 brutos semanais (Retenção Semanal Alvo: R$ 405,00)
-        # Pai: R$ 124,70 / R$ 405,00 = ~30.79%
-        # Gasolina: R$ 90,00 / R$ 405,00 = ~22.22%
-        # Geral (Mecânica/Seguro/Caixa Extra): R$ 190,30 / R$ 405,00 = ~46.99%
         pai = retencao_total * 0.3079
         gasolina = retencao_total * 0.2222
         despesas_gerais = retencao_total * 0.4699
@@ -115,11 +111,15 @@ if historico:
     st.markdown("---")
     st.subheader("📊 Painel Geral Acumulado")
     
+    bruto_total = df['Bruto (R$)'].sum()
+    lucro_total = df['Lucro Livre (R$)'].sum()
+    custo_acumulado = df['Pai (R$)'].sum() + df['Gasolina (R$)'].sum() + df['Despesas Gerais (R$)'].sum()
+
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Faturamento Bruto Total", f"R$ {df['Bruto (R$)'].sum():.2f}")
+        st.metric("Faturamento Bruto Total", f"R$ {bruto_total:.2f}")
     with col2:
-        st.metric("🟢 Seu Lucro Livre Total (59,5%)", f"R$ {df['Lucro Livre (R$)'].sum():.2f}")
+        st.metric("🟢 Seu Lucro Livre Total (59,5%)", f"R$ {lucro_total:.2f}")
         
     st.markdown("### 🔒 Divisão de Caixinhas Reservadas (40,5%)")
     c1, c2, c3 = st.columns(3)
@@ -127,11 +127,23 @@ if historico:
     c2.metric("⛽ Gasolina", f"R$ {df['Gasolina (R$)'].sum():.2f}")
     c3.metric("🛠️ Despesas Gerais", f"R$ {df['Despesas Gerais (R$)'].sum():.2f}")
     
-    custo_acumulado = df['Pai (R$)'].sum() + df['Gasolina (R$)'].sum() + df['Despesas Gerais (R$)'].sum()
+    # --- NOVA BARRA 1: FATURAMENTO BRUTO TOTAL ---
+    st.markdown("### 🚀 Progresso do Faturamento Bruto (Meta Semanal: R$ 1.000,00)")
+    progresso_bruto = min(float(bruto_total / 1000.0), 1.0) if bruto_total > 0 else 0.0
+    st.progress(progresso_bruto)
+    st.caption(f"Você já faturou R$ {bruto_total:.2f} de R$ 1.000,00 planejados.")
+
+    # --- BARRA 2 ATUALIZADA: CUSTOS FIXOS COM REAIS QUE FALTAM ---
     st.markdown("### 📈 Progresso de Custos Fixos (Meta Semanal: R$ 405,00)")
-    progresso = min(float(custo_acumulado / 405.0), 1.0) if custo_acumulado > 0 else 0.0
-    st.progress(progresso)
-    st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para as despesas e obrigações.")
+    progresso_custos = min(float(custo_acumulado / 405.0), 1.0) if custo_acumulado > 0 else 0.0
+    st.progress(progresso_custos)
+    
+    # Cálculo de quanto falta para atingir os R$ 405,00 de retenção
+    falta_custos = max(405.0 - float(custo_acumulado), 0.0)
+    if falta_custos > 0:
+        st.caption(f"Você já garantiu R$ {custo_acumulado:.2f}. **Falta R$ {falta_custos:.2f}** para bater a meta de retenção.")
+    else:
+        st.caption(f"🎉 **Meta de despesas 100% batida!** Todos os R$ 405,00 de custos e obrigações já estão totalmente garantidos.")
 
     # --- GERAR EXCEL DESIGNED ---
     excel_estetico = gerar_excel_estetico(df)
@@ -141,7 +153,7 @@ if historico:
     st.download_button(
         label="📊 Baixar Planilha para o Excel",
         data=excel_estetico,
-        file_name=f"financeiro_environmental_bajaj_{datetime.now().strftime('%m_%Y')}.xlsx",
+        file_name=f"financeiro_bajaj_{datetime.now().strftime('%m_%Y')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
@@ -175,7 +187,6 @@ if historico:
                 historico[id_selecionado]["Gasolina (R$)"] = round(ret_t * 0.2222, 2)
                 historico[id_selecionado]["Despesas Gerais (R$)"] = round(ret_t * 0.4699, 2)
                 
-                # Deleta chaves antigas se existirem no item editado para manter consistência
                 historico[id_selecionado].pop("Manutenção (R$)", None)
                 historico[id_selecionado].pop("Seguro/Reserva (R$)", None)
                 
