@@ -499,6 +499,16 @@ with col1:
         use_container_width=True,
         type="primary" if st.session_state.pagina == "Nova corrida" else "secondary",
     ):
+        # Gera uma nova versão do formulário para atualizar data e hora
+        # automaticamente no momento em que "Nova corrida" é clicado.
+        # O campo de horário continua editável manualmente.
+        if st.session_state.pagina != "Nova corrida":
+            st.session_state.nova_corrida_version += 1
+        else:
+            # Se já estiver na tela, o clique inicia uma nova corrida
+            # com os campos reinicializados.
+            st.session_state.nova_corrida_version += 1
+
         st.session_state.pagina = "Nova corrida"
         st.rerun()
 
