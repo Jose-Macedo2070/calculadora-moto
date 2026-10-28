@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 st.set_page_config(page_title="Finanças Bajaj", page_icon="🏍️", layout="centered")
 
 st.title("🏍️ Gestão Financeira - Bajaj Dominar 200")
-st.caption("Meta Semanal Agressiva: R$ 1.000,00 Brutos | CLT + 40h Moto | Retenção: 40,5%")
+st.caption("Meta Semanal: R$ 1.000,00 Brutos | CLT + 40h Moto | Retenção: 40,5%")
 
 # Banco de dados local em formato texto estruturado permanente
 ARQUIVO_BD = "banco_entregas_bajaj.json"
@@ -127,23 +127,22 @@ if historico:
     c2.metric("⛽ Gasolina", f"R$ {df['Gasolina (R$)'].sum():.2f}")
     c3.metric("🛠️ Despesas Gerais", f"R$ {df['Despesas Gerais (R$)'].sum():.2f}")
     
-    # --- NOVA BARRA 1: FATURAMENTO BRUTO TOTAL ---
-    st.markdown("### 🚀 Progresso do Faturamento Bruto (Meta Semanal: R$ 1.000,00)")
+    # --- BARRA 1: PROGRESSO DO FATURAMENTO BRUTO ---
+    st.markdown("### 🚀 Faturamento Bruto")
     progresso_bruto = min(float(bruto_total / 1000.0), 1.0) if bruto_total > 0 else 0.0
     st.progress(progresso_bruto)
-    st.caption(f"Você já faturou R$ {bruto_total:.2f} de R$ 1.000,00 planejados.")
+    st.markdown(f"Progresso: **R$ {bruto_total:.2f}** de **R$ 1.000,00** planejados para a semana.")
 
-    # --- BARRA 2 ATUALIZADA: CUSTOS FIXOS COM REAIS QUE FALTAM ---
-    st.markdown("### 📈 Progresso de Custos Fixos (Meta Semanal: R$ 405,00)")
+    # --- BARRA 2: PROGRESSO DE CUSTOS FIXOS ---
+    st.markdown("### 📈 Retenção e Custos Fixos")
     progresso_custos = min(float(custo_acumulado / 405.0), 1.0) if custo_acumulado > 0 else 0.0
     st.progress(progresso_custos)
     
-    # Cálculo de quanto falta para atingir os R$ 405,00 de retenção
     falta_custos = max(405.0 - float(custo_acumulado), 0.0)
     if falta_custos > 0:
-        st.caption(f"Você já garantiu R$ {custo_acumulado:.2f}. **Falta R$ {falta_custos:.2f}** para bater a meta de retenção.")
+        st.markdown(f"Garantido: **R$ {custo_acumulado:.2f}** | Falta: <span style='color:#FF4B4B; font-weight:bold;'>R$ {falta_custos:.2f}</span> para a meta de retenção.", unsafe_allow_html=True)
     else:
-        st.caption(f"🎉 **Meta de despesas 100% batida!** Todos os R$ 405,00 de custos e obrigações já estão totalmente garantidos.")
+        st.markdown("🎉 **Meta de despesas 100% atingida!** Todos os custos e obrigações da semana estão garantidos.")
 
     # --- GERAR EXCEL DESIGNED ---
     excel_estetico = gerar_excel_estetico(df)
