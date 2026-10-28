@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 st.set_page_config(page_title="Finanças Bajaj", page_icon="🏍️", layout="centered")
 
 st.title("🏍️ Gestão Financeira - Bajaj Dominar 200")
-st.caption("Cenário 41 Meses e 20 Dias | Retenção: 40,5%")
+st.caption("Meta Semanal Agressiva: R$ 1.000,00 Brutos | CLT + 40h Moto | Retenção: 40,5%")
 
 # Banco de dados local em formato texto estruturado permanente
 ARQUIVO_BD = "banco_entregas_bajaj.json"
@@ -80,10 +80,13 @@ with st.form("nova_entrega", clear_on_submit=True):
         retencao_total = valor_bruto * 0.405
         lucro_livre = valor_bruto * 0.595
         
-        pai = retencao_total * 0.515
-        gasolina = retencao_total * 0.220
-        manutencao = retencao_total * 0.108
-        seguro_reserva = retencao_total * 0.157
+        # Recalibrado para a meta de R$ 1.000,00 brutos semanais (Retenção Semanal Alvo: R$ 405,00)
+        # Pai: R$ 124,70 / R$ 405,00 = ~30.79%
+        # Gasolina: R$ 90,00 / R$ 405,00 = ~22.22%
+        # Geral (Mecânica/Seguro/Caixa Extra): R$ 190,30 / R$ 405,00 = ~46.99%
+        pai = retencao_total * 0.3079
+        gasolina = retencao_total * 0.2222
+        despesas_gerais = retencao_total * 0.4699
         
         novo_registro = {
             "Data": data_entrega.strftime("%d/%m/%Y"),
@@ -91,8 +94,7 @@ with st.form("nova_entrega", clear_on_submit=True):
             "Lucro Livre (R$)": round(lucro_livre, 2),
             "Pai (R$)": round(pai, 2),
             "Gasolina (R$)": round(gasolina, 2),
-            "Manutenção (R$)": round(manutencao, 2),
-            "Seguro/Reserva (R$)": round(seguro_reserva, 2)
+            "Despesas Gerais (R$)": round(despesas_gerais, 2)
         }
         
         historico.append(novo_registro)
@@ -104,6 +106,12 @@ with st.form("nova_entrega", clear_on_submit=True):
 if historico:
     df = pd.DataFrame(historico)
     
+    # Garantir compatibilidade de colunas caso existam registros antigos no JSON local
+    if "Despesas Gerais (R$)" not in df.columns:
+        df["Despesas Gerais (R$)"] = 0.0
+        if "Manutenção (R$)" in df.columns and "Seguro/Reserva (R$)" in df.columns:
+            df["Despesas Gerais (R$)"] = df["Manutenção (R$)"] + df["Seguro/Reserva (R$)"]
+
     st.markdown("---")
     st.subheader("📊 Painel Geral Acumulado")
     
@@ -114,17 +122,16 @@ if historico:
         st.metric("🟢 Seu Lucro Livre Total (59,5%)", f"R$ {df['Lucro Livre (R$)'].sum():.2f}")
         
     st.markdown("### 🔒 Divisão de Caixinhas Reservadas (40,5%)")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("👴🏼 Pai", f"R$ {df['Pai (R$)'].sum():.2f}")
     c2.metric("⛽ Gasolina", f"R$ {df['Gasolina (R$)'].sum():.2f}")
-    c3.metric("🛠️ Mecânica", f"R$ {df['Manutenção (R$)'].sum():.2f}")
-    c4.metric("🛡️ Seguro", f"R$ {df['Seguro/Reserva (R$)'].sum():.2f}")
+    c3.metric("🛠️ Despesas Gerais", f"R$ {df['Despesas Gerais (R$)'].sum():.2f}")
     
-    custo_acumulado = df['Pai (R$)'].sum() + df['Gasolina (R$)'].sum() + df['Manutenção (R$)'].sum() + df['Seguro/Reserva (R$)'].sum()
-    st.markdown("### 📈 Progresso de Custos Fixos (Meta Semanal: R$ 242,00)")
-    progresso = min(float(custo_acumulado / 242.0), 1.0) if custo_acumulado > 0 else 0.0
+    custo_acumulado = df['Pai (R$)'].sum() + df['Gasolina (R$)'].sum() + df['Despesas Gerais (R$)'].sum()
+    st.markdown("### 📈 Progresso de Custos Fixos (Meta Semanal: R$ 405,00)")
+    progresso = min(float(custo_acumulado / 405.0), 1.0) if custo_acumulado > 0 else 0.0
     st.progress(progresso)
-    st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para as despesas.")
+    st.caption(f"Você já garantiu R$ {custo_acumulado:.2f} para as despesas e obrigações.")
 
     # --- GERAR EXCEL DESIGNED ---
     excel_estetico = gerar_excel_estetico(df)
@@ -134,14 +141,14 @@ if historico:
     st.download_button(
         label="📊 Baixar Planilha para o Excel",
         data=excel_estetico,
-        file_name=f"financeiro_bajaj_{datetime.now().strftime('%m_%Y')}.xlsx",
+        file_name=f"financeiro_environmental_bajaj_{datetime.now().strftime('%m_%Y')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
     # --- HISTÓRICO VISUAL ---
     st.markdown("---")
     st.subheader("📋 Histórico de Lançamentos Permanentes")
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df[["Data", "Bruto (R$)", "Lucro Livre (R$)", "Pai (R$)", "Gasolina (R$)", "Despesas Gerais (R$)"]], use_container_width=True)
 
     # --- GERENCIAMENTO (EDITAR / EXCLUIR / EXCLUIR TUDO) ---
     st.markdown("---")
@@ -164,13 +171,16 @@ if historico:
                 ret_t = novo_valor * 0.405
                 historico[id_selecionado]["Bruto (R$)"] = round(novo_valor, 2)
                 historico[id_selecionado]["Lucro Livre (R$)"] = round(novo_valor * 0.595, 2)
-                historico[id_selecionado]["Pai (R$)"] = round(ret_t * 0.515, 2)
-                historico[id_selecionado]["Gasolina (R$)"] = round(ret_t * 0.220, 2)
-                historico[id_selecionado]["Manutenção (R$)"] = round(ret_t * 0.108, 2)
-                historico[id_selecionado]["Seguro/Reserva (R$)"] = round(ret_t * 0.157, 2)
+                historico[id_selecionado]["Pai (R$)"] = round(ret_t * 0.3079, 2)
+                historico[id_selecionado]["Gasolina (R$)"] = round(ret_t * 0.2222, 2)
+                historico[id_selecionado]["Despesas Gerais (R$)"] = round(ret_t * 0.4699, 2)
+                
+                # Deleta chaves antigas se existirem no item editado para manter consistência
+                historico[id_selecionado].pop("Manutenção (R$)", None)
+                historico[id_selecionado].pop("Seguro/Reserva (R$)", None)
                 
                 salvar_banco(historico)
-                st.success("Registro atualizado!")
+                st.success("Registro atualizado com sucesso!")
                 st.rerun()
                 
         with col_ex:
@@ -179,7 +189,7 @@ if historico:
             if st.button("🗑️ Excluir Item"):
                 historico.pop(id_selecionado)
                 salvar_banco(historico)
-                st.success("Registro apagado!")
+                st.success("Registro apagado com sucesso!")
                 st.rerun()
                 
     with aba_massa:
@@ -188,30 +198,7 @@ if historico:
         
         if st.checkbox("⚠️ Quero apagar todos os dados acumulados"):
             st.error("❓ Deseja excluir tudo permanentemente?")
-            
-            col_b1, col_b2 = st.columns(2)
-            
-            with col_b1:
-                st.markdown("""
-                    <style>
-                    div.stButton > button:first-child {
-                        background-color: #d9534f;
-                        color: white;
-                    }
-                    </style>""", unsafe_allow_html=True)
-                if st.button("🔴 SIM (Apagar Tudo)"):
-                    if os.path.exists(ARQUIVO_BD):
-                        os.remove(ARQUIVO_BD)
-                    st.success("Todos os registros foram excluídos!")
-                    st.rerun()
-                    
-            with col_b2:
-                st.download_button(
-                    label="🟢 SALVAR (Baixar Planilha Backup)",
-                    data=excel_estetico,
-                    file_name=f"backup_entregas_bajaj_{datetime.now().strftime('%d_%m_%Y')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_salvar_massa"
-                )
-else:
-    st.info("Nenhuma entrega lançada ainda. Digite um valor acima para criar os primeiros registros permanentes!")
+            if st.button("💥 SIM, APAGAR HISTÓRICO"):
+                salvar_banco([])
+                st.success("O banco de dados foi completamente resetado!")
+                st.rerun()
