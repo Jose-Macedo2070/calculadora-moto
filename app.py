@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import json
@@ -6,6 +5,7 @@ import os
 
 from datetime import datetime, date, time, timedelta
 from io import BytesIO
+
 
 # =========================================================
 # CONFIGURAÇÃO
@@ -123,6 +123,22 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
+
+# =========================================================
+# HORÁRIO LOCAL DO APARELHO
+# =========================================================
+
+def obter_data_hora_aparelho():
+    """Obtém a data/hora do navegador; usa o horário do servidor como reserva."""
+    try:
+        valor = st_javascript("new Date().toLocaleString('sv-SE')")
+        if isinstance(valor, str) and valor.strip():
+            return datetime.strptime(valor.strip(), "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+
+    return datetime.now()
 
 
 # =========================================================
@@ -374,6 +390,12 @@ if "confirmar_limpeza" not in st.session_state:
 if "confirmar_exclusao" not in st.session_state:
     st.session_state.confirmar_exclusao = False
 
+if "nova_corrida_version" not in st.session_state:
+    st.session_state.nova_corrida_version = 0
+
+if "mensagem_sucesso_corrida" not in st.session_state:
+    st.session_state.mensagem_sucesso_corrida = None
+
 
 def navegar(pagina):
     st.session_state.pagina = pagina
@@ -393,7 +415,9 @@ col1, col2 = st.columns(2)
 
 with col1:
     if st.button("＋ Nova corrida", type="primary", use_container_width=True):
-        navegar("Nova corrida")
+        # Cada clique inicia um formulário novo, sem reaproveitar campos anteriores.
+        st.session_state.nova_corrida_version += 1
+        st.session_state.pagina = "Nova corrida"
         st.rerun()
 
 with col2:
@@ -415,6 +439,10 @@ with col4:
 
 st.divider()
 
+if st.session_state.mensagem_sucesso_corrida:
+    st.success(st.session_state.mensagem_sucesso_corrida)
+    st.session_state.mensagem_sucesso_corrida = None
+
 dados = st.session_state.dados
 df = criar_dataframe(dados)
 
@@ -428,28 +456,31 @@ if st.session_state.pagina == "Nova corrida":
     st.header("Registrar nova corrida")
     st.caption("Registre os ganhos, o aplicativo e a distância percorrida.")
 
+    versao_corrida = st.session_state.nova_corrida_version
+    data_hora_aparelho = obter_data_hora_aparelho()
+
     col1, col2 = st.columns(2)
 
     with col1:
         data_corrida = st.date_input(
             "Data da corrida",
-            value=date.today(),
+            value=data_hora_aparelho.date(),
             format="DD/MM/YYYY",
-            key="nova_data"
+            key=f"nova_data_{versao_corrida}"
         )
 
     with col2:
         hora_corrida = st.time_input(
             "Horário da corrida",
-            value=datetime.now().time().replace(second=0, microsecond=0),
+            value=data_hora_aparelho.time().replace(second=0, microsecond=0),
             format="24h",
-            key="nova_hora"
+            key=f"nova_hora_{versao_corrida}"
         )
 
     aplicativo_opcao = st.selectbox(
         "Aplicativo utilizado",
         APLICATIVOS,
-        key="novo_aplicativo"
+        key=f"novo_aplicativo_{versao_corrida}"
     )
 
     outro_aplicativo = ""
@@ -458,7 +489,7 @@ if st.session_state.pagina == "Nova corrida":
         outro_aplicativo = st.text_input(
             "Digite o nome do aplicativo",
             placeholder="Ex.: Loggi",
-            key="novo_outro_aplicativo"
+            key=f"novo_outro_aplicativo_{versao_corrida}"
         )
 
     col1, col2 = st.columns(2)
@@ -470,7 +501,7 @@ if st.session_state.pagina == "Nova corrida":
             value=0.0,
             step=5.0,
             format="%.2f",
-            key="novo_bruto"
+            key=f"novo_bruto_{versao_corrida}"
         )
 
     with col2:
@@ -481,7 +512,7 @@ if st.session_state.pagina == "Nova corrida":
             step=0.5,
             format="%.2f",
             help="Informe a distância percorrida nessa corrida.",
-            key="novo_km"
+            key=f"novo_km_{versao_corrida}"
         )
 
     if bruto > 0:
@@ -504,7 +535,12 @@ if st.session_state.pagina == "Nova corrida":
                 formatar_moeda(bruto / km_percorridos) + "/km"
             )
 
-    if st.button("Salvar corrida", type="primary", use_container_width=True):
+    if st.button(
+        "Salvar corrida",
+        type="primary",
+        use_container_width=True,
+        key=f"salvar_corrida_{versao_corrida}"
+    ):
 
         aplicativo = nome_aplicativo_selecionado(
             aplicativo_opcao,
@@ -536,7 +572,13 @@ if st.session_state.pagina == "Nova corrida":
 
             if salvar_dados(novos_dados):
                 st.session_state.dados = novos_dados
-                st.success("Corrida registrada com sucesso.")
+                # O próximo formulário recebe novas chaves e volta aos valores padrão.
+                st.session_state.nova_corrida_version += 1
+                st.session_state.mensagem_sucesso_corrida = (
+                    "Corrida registrada com sucesso. O formulário foi limpo "
+                    "e está pronto para a próxima corrida."
+                )
+                st.session_state.pagina = "Nova corrida"
                 st.rerun()
 
 
@@ -578,7 +620,10 @@ elif st.session_state.pagina == "Dashboard":
         st.metric("Total reservado", formatar_moeda(retencao_total))
 
     with c2:
-        st.metric("KM registrados", f"{km_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+        st.metric(
+            "KM registrados",
+            f"{km_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        )
 
     st.divider()
     st.subheader("Semana atual")
@@ -598,11 +643,17 @@ elif st.session_state.pagina == "Dashboard":
 
     st.caption("Progresso da meta bruta semanal")
     st.progress(min(resumo["bruto"] / META_BRUTA_SEMANAL, 1.0))
-    st.caption(f"{formatar_moeda(resumo['bruto'])} de {formatar_moeda(META_BRUTA_SEMANAL)}")
+    st.caption(
+        f"{formatar_moeda(resumo['bruto'])} de "
+        f"{formatar_moeda(META_BRUTA_SEMANAL)}"
+    )
 
     st.caption("Progresso da meta de retenção semanal")
     st.progress(min(resumo["retencao"] / META_RETENCAO_SEMANAL, 1.0))
-    st.caption(f"{formatar_moeda(resumo['retencao'])} de {formatar_moeda(META_RETENCAO_SEMANAL)}")
+    st.caption(
+        f"{formatar_moeda(resumo['retencao'])} de "
+        f"{formatar_moeda(META_RETENCAO_SEMANAL)}"
+    )
 
     if not df.empty:
         st.divider()
@@ -700,7 +751,6 @@ elif st.session_state.pagina == "Histórico":
             with c2:
                 st.metric("Lucro livre", formatar_moeda(df_filtrado["Lucro Livre (R$)"].sum()))
 
-            # O Excel inclui aplicativo e KM percorridos.
             st.download_button(
                 label="⬇ Exportar histórico para Excel",
                 data=gerar_excel(df_filtrado),
@@ -826,8 +876,11 @@ elif st.session_state.pagina == "Gerenciar":
                 key=f"km_editar_{indice}"
             )
 
-        if st.button("Salvar alterações", type="primary", use_container_width=True):
-
+        if st.button(
+            "Salvar alterações",
+            type="primary",
+            use_container_width=True
+        ):
             aplicativo_editado = nome_aplicativo_selecionado(
                 app_opcao_editada,
                 outro_editado
@@ -846,7 +899,9 @@ elif st.session_state.pagina == "Gerenciar":
                     "Data": data_editada.isoformat(),
                     "Hora": hora_editada.strftime("%H:%M"),
                     "Aplicativo": aplicativo_editado,
-                    "KM percorridos": round(km_editado, 2) if km_editado > 0 else None,
+                    "KM percorridos": (
+                        round(km_editado, 2) if km_editado > 0 else None
+                    ),
                     **valores
                 }
 
