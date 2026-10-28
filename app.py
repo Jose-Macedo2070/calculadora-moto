@@ -11,13 +11,14 @@ from openpyxl.utils import get_column_letter
 
 
 # =========================================================
-# CONFIGURAÇÕES
+# 1. CONFIGURAÇÕES
 # =========================================================
 
 st.set_page_config(
     page_title="Finanças Bajaj",
     page_icon="🏍️",
     layout="centered",
+    initial_sidebar_state="collapsed",
 )
 
 ARQUIVO_BD = "banco_entregas_bajaj.json"
@@ -44,35 +45,84 @@ COLUNAS_HISTORICO = ["Data", "Hora"] + COLUNAS_VALORES
 
 
 # =========================================================
-# ESTILO
+# 2. ESTILO RESPONSIVO PARA CELULAR
 # =========================================================
 
 st.markdown(
     """
     <style>
     .block-container {
-        padding-top: 1.5rem;
-        padding-bottom: 2rem;
         max-width: 1000px;
+        padding-top: 1.2rem;
+        padding-bottom: 2rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
     }
 
     div[data-testid="stMetric"] {
-        background-color: rgba(128, 128, 128, 0.07);
+        background: rgba(128, 128, 128, 0.07);
         border: 1px solid rgba(128, 128, 128, 0.15);
-        padding: 14px;
+        padding: 12px;
         border-radius: 12px;
+        overflow-wrap: anywhere;
     }
 
-    div[data-testid="stProgress"] {
-        margin-bottom: 8px;
+    div[data-testid="stMetricValue"] {
+        font-size: clamp(1.15rem, 4vw, 1.8rem);
     }
 
     div.stButton > button,
-    div.stDownloadButton > button {
+    div.stDownloadButton > button,
+    div.stFormSubmitButton > button {
+        width: 100%;
+        min-height: 44px;
         border-radius: 10px;
-        min-height: 42px;
+        white-space: normal;
     }
 
+    div[data-testid="stProgress"] {
+        margin: 8px 0 14px 0;
+    }
+
+    /* Evita que várias colunas fiquem apertadas no celular. */
+    @media (max-width: 640px) {
+        .block-container {
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+            padding-top: 0.8rem;
+        }
+
+        div[data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap;
+            gap: 0.65rem;
+        }
+
+        div[data-testid="stHorizontalBlock"] > div {
+            min-width: 100% !important;
+            flex: 1 1 100% !important;
+        }
+
+        h1 {
+            font-size: 1.65rem !important;
+        }
+
+        h2 {
+            font-size: 1.35rem !important;
+        }
+
+        h3 {
+            font-size: 1.15rem !important;
+        }
+
+        div[data-testid="stMetric"] {
+            padding: 10px;
+        }
+
+        /* A tabela pode ser deslizada horizontalmente. */
+        div[data-testid="stDataFrame"] {
+            max-width: 100%;
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -80,17 +130,24 @@ st.markdown(
 
 
 # =========================================================
-# FUNÇÕES AUXILIARES
+# 3. FUNÇÕES GERAIS
 # =========================================================
 
 def moeda(valor):
-    """Formata números no padrão monetário brasileiro."""
-    texto = f"{valor:,.2f}"
-    texto = texto.replace(",", "X").replace(".", ",").replace("X", ".")
+    """Formata valores no padrão brasileiro."""
+
+    texto = f"{float(valor):,.2f}"
+    texto = (
+        texto.replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
     return f"R$ {texto}"
 
 
 def carregar_banco():
+    """Lê o histórico sem apagar arquivos com problemas."""
+
     if not os.path.exists(ARQUIVO_BD):
         return []
 
@@ -99,32 +156,51 @@ def carregar_banco():
             dados = json.load(arquivo)
 
         if not isinstance(dados, list):
-            raise ValueError("O conteúdo do JSON não é uma lista.")
+            raise ValueError("O arquivo não contém uma lista de registros.")
 
         return dados
 
     except (json.JSONDecodeError, OSError, ValueError) as erro:
-        st.error(f"Erro ao carregar o histórico: {erro}")
+        st.error(
+            f"Não foi possível carregar o histórico: {erro}. "
+            "Verifique o arquivo JSON antes de continuar."
+        )
         st.stop()
 
 
 def salvar_banco(dados):
-    """Salva os dados usando arquivo temporário."""
+    """Grava os dados usando um arquivo temporário."""
+
     temporario = ARQUIVO_BD + ".tmp"
 
-    with open(temporario, "w", encoding="utf-8") as arquivo:
-        json.dump(
-            dados,
-            arquivo,
-            indent=4,
-            ensure_ascii=False,
-        )
+    try:
+        with open(temporario, "w", encoding="utf-8") as arquivo:
+            json.dump(
+                dados,
+                arquivo,
+                indent=4,
+                ensure_ascii=False,
+            )
 
-    os.replace(temporario, ARQUIVO_BD)
+        os.replace(temporario, ARQUIVO_BD)
 
+    except OSError as erro:
+        if os.path.exists(temporario):
+            try:
+                os.remove(temporario)
+            except OSError:
+                pass
+
+        st.error(f"Não foi possível salvar os dados: {erro}")
+        st.stop()
+
+
+# =========================================================
+# 4. CÁLCULOS FINANCEIROS
+# =========================================================
 
 def calcular_registro(valor_bruto, data_corrida, hora_corrida):
-    """Calcula a distribuição financeira de uma corrida."""
+    """Calcula a distribuição financeira da corrida."""
 
     valor_bruto = round(float(valor_bruto), 2)
     retencao = valor_bruto * TAXA_RETENCAO
@@ -138,8 +214,12 @@ def calcular_registro(valor_bruto, data_corrida, hora_corrida):
         "Data": data_corrida.strftime("%d/%m/%Y"),
         "Hora": hora_texto,
         "Bruto (R$)": valor_bruto,
-        "Lucro Livre (R$)": round(valor_bruto * TAXA_LUCRO, 2),
-        "Pai (R$)": round(retencao * PERCENTUAL_PAI, 2),
+        "Lucro Livre (R$)": round(
+            valor_bruto * TAXA_LUCRO, 2
+        ),
+        "Pai (R$)": round(
+            retencao * PERCENTUAL_PAI, 2
+        ),
         "Gasolina (R$)": round(
             retencao * PERCENTUAL_GASOLINA, 2
         ),
@@ -151,32 +231,38 @@ def calcular_registro(valor_bruto, data_corrida, hora_corrida):
 
 def normalizar_historico(dados):
     """
-    Compatibilidade com registros antigos que não possuem hora
-    ou que utilizavam as categorias antigas de despesas.
+    Mantém a compatibilidade com registros antigos.
+    Horários inexistentes permanecem vazios.
     """
 
     resultado = []
 
     for registro in dados:
-        data_texto = registro.get("Data")
-
         try:
             data_corrida = datetime.strptime(
-                data_texto, "%d/%m/%Y"
+                registro.get("Data", ""),
+                "%d/%m/%Y",
             ).date()
         except (ValueError, TypeError):
-            data_corrida = date.today()
+            raise ValueError(
+                "Foi encontrado um registro com data inválida."
+            )
+
+        try:
+            bruto = float(registro.get("Bruto (R$)", 0) or 0)
+        except (ValueError, TypeError):
+            raise ValueError(
+                "Foi encontrado um registro com valor inválido."
+            )
 
         hora_texto = str(registro.get("Hora", "") or "")
 
         try:
             hora_texto = datetime.strptime(
                 hora_texto, "%H:%M"
-            ).strftime("%H:%M")
+            ).strftime("%H:%M") if hora_texto else ""
         except ValueError:
             hora_texto = ""
-
-        bruto = float(registro.get("Bruto (R$)", 0) or 0)
 
         novo = calcular_registro(
             bruto,
@@ -184,12 +270,17 @@ def normalizar_historico(dados):
             hora_texto,
         )
 
-        # Preserva valores financeiros já registrados.
+        # Preserva os valores financeiros já registrados.
         for coluna in COLUNAS_VALORES:
             if coluna in registro:
-                novo[coluna] = float(registro[coluna] or 0)
+                try:
+                    novo[coluna] = float(registro[coluna] or 0)
+                except (ValueError, TypeError):
+                    raise ValueError(
+                        f"Valor inválido na coluna {coluna}."
+                    )
 
-        # Converte registros que utilizavam duas categorias antigas.
+        # Compatibilidade com categorias antigas.
         if (
             "Despesas Gerais (R$)" not in registro
             and (
@@ -208,9 +299,18 @@ def normalizar_historico(dados):
     return resultado
 
 
-def gerar_excel(dataframe):
-    """Cria uma planilha Excel formatada."""
+def obter_semana_atual():
+    hoje = date.today()
+    inicio = hoje - timedelta(days=hoje.weekday())
+    fim = inicio + timedelta(days=6)
+    return inicio, fim
 
+
+# =========================================================
+# 5. EXPORTAÇÃO EXCEL
+# =========================================================
+
+def gerar_excel(dataframe):
     buffer = BytesIO()
 
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
@@ -228,7 +328,7 @@ def gerar_excel(dataframe):
             fill_type="solid",
         )
 
-        fonte_titulo = Font(
+        fonte_cabecalho = Font(
             name="Arial",
             size=11,
             bold=True,
@@ -242,6 +342,7 @@ def gerar_excel(dataframe):
         )
 
         lado = Side(style="thin", color="D3D3D3")
+
         borda = Border(
             left=lado,
             right=lado,
@@ -249,17 +350,15 @@ def gerar_excel(dataframe):
             bottom=lado,
         )
 
-        # Cabeçalho
         for celula in planilha[1]:
             celula.fill = fundo
-            celula.font = fonte_titulo
+            celula.font = fonte_cabecalho
             celula.alignment = Alignment(
                 horizontal="center",
                 vertical="center",
             )
             celula.border = borda
 
-        # Dados
         for linha in planilha.iter_rows(min_row=2):
             for celula in linha:
                 celula.font = fonte_dados
@@ -277,7 +376,6 @@ def gerar_excel(dataframe):
                 if nome_coluna in COLUNAS_VALORES:
                     celula.number_format = '"R$" #,##0.00'
 
-        # Ajuste automático de largura
         for coluna in planilha.columns:
             tamanho = max(
                 len(str(celula.value or ""))
@@ -297,40 +395,33 @@ def gerar_excel(dataframe):
     return buffer
 
 
-def obter_semana_atual():
-    hoje = date.today()
-    inicio = hoje - timedelta(days=hoje.weekday())
-    fim = inicio + timedelta(days=6)
-    return inicio, fim
-
-
 # =========================================================
-# CARREGAMENTO E MIGRAÇÃO DOS REGISTROS
+# 6. CARREGAR HISTÓRICO
 # =========================================================
 
 try:
     historico = normalizar_historico(carregar_banco())
 except (ValueError, TypeError, KeyError) as erro:
     st.error(
-        "Existem dados incompatíveis no histórico. "
-        f"Verifique o arquivo JSON antes de continuar. Detalhe: {erro}"
+        f"O histórico possui registros incompatíveis: {erro}. "
+        "Faça uma cópia do JSON antes de corrigir os dados."
     )
     st.stop()
 
 
 # =========================================================
-# CABEÇALHO
+# 7. CABEÇALHO
 # =========================================================
 
 st.title("🏍️ Gestão Financeira Bajaj")
 st.caption(
-    "Dominar 200 | Meta semanal: R$ 1.000,00 brutos "
+    "Dominar 200 | Meta semanal: R$ 1.000,00 "
     "| Retenção planejada: 40,5%"
 )
 
 
 # =========================================================
-# NAVEGAÇÃO ENTRE TELAS
+# 8. NAVEGAÇÃO
 # =========================================================
 
 TELAS = [
@@ -343,11 +434,13 @@ TELAS = [
 if "tela_atual" not in st.session_state:
     st.session_state.tela_atual = "Dashboard"
 
-st.markdown("### Navegação")
+st.markdown("### Menu")
 
-nav1, nav2 = st.columns(2)
+# O layout de duas colunas no desktop vira uma coluna
+# por botão em telas pequenas, por causa do CSS responsivo.
+coluna_esquerda, coluna_direita = st.columns(2)
 
-with nav1:
+with coluna_esquerda:
     if st.button(
         "➕ Nova corrida",
         type=(
@@ -372,7 +465,7 @@ with nav1:
         st.session_state.tela_atual = "Dashboard"
         st.rerun()
 
-with nav2:
+with coluna_direita:
     if st.button(
         "📋 Histórico",
         type=(
@@ -401,7 +494,7 @@ st.divider()
 
 
 # =========================================================
-# TELA: NOVA CORRIDA
+# 9. TELA NOVA CORRIDA
 # =========================================================
 
 if st.session_state.tela_atual == "Nova corrida":
@@ -409,7 +502,7 @@ if st.session_state.tela_atual == "Nova corrida":
     st.subheader("📥 Lançar Nova Corrida")
 
     st.write(
-        "Informe quando a corrida aconteceu e quanto você recebeu."
+        "Informe o valor recebido, a data e o horário."
     )
 
     with st.form("form_nova_corrida", clear_on_submit=True):
@@ -421,24 +514,21 @@ if st.session_state.tela_atual == "Nova corrida":
             format="%.2f",
         )
 
-        col_data, col_hora = st.columns(2)
+        data_corrida = st.date_input(
+            "Data da corrida",
+            value=date.today(),
+            format="DD/MM/YYYY",
+        )
 
-        with col_data:
-            data_corrida = st.date_input(
-                "Data da corrida",
-                value=date.today(),
-                format="DD/MM/YYYY",
-            )
-
-        with col_hora:
-            hora_corrida = st.time_input(
-                "Horário da corrida",
-                value=datetime.now().time().replace(
-                    second=0, microsecond=0
-                ),
-                step=300,
-                format="HH:mm",
-            )
+        hora_corrida = st.time_input(
+            "Horário da corrida",
+            value=datetime.now().time().replace(
+                second=0,
+                microsecond=0,
+            ),
+            step=timedelta(minutes=5),
+            format="HH:mm",
+        )
 
         salvar = st.form_submit_button(
             "💾 Calcular e Salvar Corrida",
@@ -462,13 +552,13 @@ if st.session_state.tela_atual == "Nova corrida":
                 st.rerun()
 
     st.info(
-        "O sistema calcula automaticamente seu lucro livre "
+        "O sistema calculará automaticamente seu lucro livre "
         "e a divisão entre Pai, Gasolina e Despesas Gerais."
     )
 
 
 # =========================================================
-# TELA: DASHBOARD
+# 10. TELA DASHBOARD
 # =========================================================
 
 elif st.session_state.tela_atual == "Dashboard":
@@ -477,7 +567,7 @@ elif st.session_state.tela_atual == "Dashboard":
 
     if not historico:
         st.info(
-            "Você ainda não possui corridas registradas. "
+            "Nenhuma corrida registrada. "
             "Acesse 'Nova corrida' para começar."
         )
 
@@ -552,20 +642,18 @@ elif st.session_state.tela_atual == "Dashboard":
 
         st.progress(progresso_bruto)
 
-        c1, c2 = st.columns(2)
-
-        c1.metric(
+        st.metric(
             "Faturamento da semana",
             moeda(bruto_semana),
         )
 
-        c2.metric(
-            "Falta para a meta",
+        st.metric(
+            "Falta para atingir a meta",
             moeda(max(META_BRUTA_SEMANAL - bruto_semana, 0)),
         )
 
         st.caption(
-            f"Progresso semanal: {progresso_bruto:.1%} "
+            f"Progresso: {progresso_bruto:.1%} "
             f"| Meta: {moeda(META_BRUTA_SEMANAL)}"
         )
 
@@ -578,14 +666,12 @@ elif st.session_state.tela_atual == "Dashboard":
 
         st.progress(progresso_custos)
 
-        c1, c2 = st.columns(2)
-
-        c1.metric(
+        st.metric(
             "Reservado nesta semana",
             moeda(custos_semana),
         )
 
-        c2.metric(
+        st.metric(
             "Falta reservar",
             moeda(max(META_CUSTOS_SEMANAL - custos_semana, 0)),
         )
@@ -605,7 +691,7 @@ elif st.session_state.tela_atual == "Dashboard":
 
 
 # =========================================================
-# TELA: HISTÓRICO E EXPORTAÇÃO
+# 11. TELA HISTÓRICO E EXPORTAÇÃO
 # =========================================================
 
 elif st.session_state.tela_atual == "Histórico":
@@ -621,12 +707,12 @@ elif st.session_state.tela_atual == "Histórico":
             columns=COLUNAS_HISTORICO,
         )
 
-        # Ordena por data e hora, mantendo os dados originais.
         df_ordenado = df.copy()
 
         df_ordenado["_DataHora"] = pd.to_datetime(
-            df_ordenado["Data"] + " " +
-            df_ordenado["Hora"].replace("", "00:00"),
+            df_ordenado["Data"]
+            + " "
+            + df_ordenado["Hora"].replace("", "00:00"),
             format="%d/%m/%Y %H:%M",
             errors="coerce",
         )
@@ -643,6 +729,7 @@ elif st.session_state.tela_atual == "Histórico":
             df_exibicao,
             use_container_width=True,
             hide_index=True,
+            height=400,
             column_config={
                 "Data": st.column_config.TextColumn("Data"),
                 "Hora": st.column_config.TextColumn("Hora"),
@@ -656,7 +743,12 @@ elif st.session_state.tela_atual == "Histórico":
             },
         )
 
-        # Exportação logo abaixo da tabela.
+        st.caption(
+            "No celular, deslize a tabela horizontalmente "
+            "para consultar todas as colunas."
+        )
+
+        # O botão fica diretamente abaixo da tabela.
         st.markdown("#### 📥 Exportar Histórico")
 
         excel = gerar_excel(df_exibicao)
@@ -677,7 +769,7 @@ elif st.session_state.tela_atual == "Histórico":
 
 
 # =========================================================
-# TELA: GERENCIAR
+# 12. TELA GERENCIAR
 # =========================================================
 
 elif st.session_state.tela_atual == "Gerenciar":
@@ -733,24 +825,20 @@ elif st.session_state.tela_atual == "Gerenciar":
                 format="%.2f",
             )
 
-            c1, c2 = st.columns(2)
+            data_editada = st.date_input(
+                "Data",
+                value=data_original,
+                format="DD/MM/YYYY",
+                key="data_edicao",
+            )
 
-            with c1:
-                data_editada = st.date_input(
-                    "Data",
-                    value=data_original,
-                    format="DD/MM/YYYY",
-                    key="data_edicao",
-                )
-
-            with c2:
-                hora_editada = st.time_input(
-                    "Hora",
-                    value=hora_original,
-                    step=300,
-                    format="HH:mm",
-                    key="hora_edicao",
-                )
+            hora_editada = st.time_input(
+                "Horário",
+                value=hora_original,
+                step=timedelta(minutes=5),
+                format="HH:mm",
+                key="hora_edicao",
+            )
 
             confirmar = st.form_submit_button(
                 "Salvar Alterações",
@@ -768,6 +856,7 @@ elif st.session_state.tela_atual == "Gerenciar":
                     )
 
                     salvar_banco(historico)
+
                     st.success("Corrida atualizada!")
                     st.rerun()
 
@@ -786,6 +875,7 @@ elif st.session_state.tela_atual == "Gerenciar":
         ):
             historico.pop(indice)
             salvar_banco(historico)
+
             st.success("Corrida excluída!")
             st.rerun()
 
@@ -794,7 +884,7 @@ elif st.session_state.tela_atual == "Gerenciar":
     st.markdown("### 🚨 Limpar Todo o Histórico")
 
     st.warning(
-        "Esta ação remove permanentemente todos os lançamentos "
+        "Esta ação remove permanentemente todos os registros "
         "armazenados no arquivo JSON."
     )
 
