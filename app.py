@@ -63,7 +63,6 @@ def gerar_excel_estetico(dataframe):
         
         for col in worksheet.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
-            # CORREÇÃO AQUI: Acessando a coluna a partir da primeira célula da tupla
             col_letter = get_column_letter(col[0].column)
             worksheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
             
@@ -132,7 +131,7 @@ if historico:
     st.markdown("### 🚀 Faturamento Bruto")
     progresso_bruto = min(float(bruto_total / 1000.0), 1.0) if bruto_total > 0 else 0.0
     st.progress(progresso_bruto)
-    st.write(f"Progresso: **R$ {bruto_total:.2f}** de **R$ 1.000,00** planejados para a semana.")
+    st.markdown(f"Progresso: **R$ {bruto_total:.2f}** de **R$ 1.000,00** planejados para a semana.")
 
     # --- BARRA 2: PROGRESSO DE CUSTOS FIXOS ---
     st.markdown("### 📈 Retenção e Custos Fixos")
@@ -141,7 +140,7 @@ if historico:
     
     falta_custos = max(405.0 - float(custo_acumulado), 0.0)
     if falta_custos > 0:
-        st.write(f"Garantido: **R$ {custo_acumulado:.2f}** | Falta: **R$ {falta_custos:.2f}** para atingir os R$ 405,00.")
+        st.markdown(f"Garantido: **R$ {custo_acumulado:.2f}** | Falta: **R$ {falta_custos:.2f}** para atingir os R$ 405,00.")
     else:
         st.success("🎉 **Meta de despesas 100% atingida!** Todos os custos e obrigações da semana estão garantidos.")
 
@@ -191,7 +190,7 @@ if historico:
                 historico[id_selecionado].pop("Seguro/Reserva (R$)", None)
                 
                 salvar_banco(historico)
-                st.success("Registro atualizado!")
+                st.success("Registro atualizado com sucesso!")
                 st.rerun()
                 
         with col_ex:
@@ -200,7 +199,7 @@ if historico:
             if st.button("🗑️ Excluir Item"):
                 historico.pop(id_selecionado)
                 salvar_banco(historico)
-                st.success("Registro apagado!")
+                st.success("Registro apagado com sucesso!")
                 st.rerun()
                 
     with aba_massa:
