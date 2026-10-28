@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import json
@@ -22,15 +23,15 @@ ARQUIVO_DADOS = "banco_entregas_bajaj.json"
 META_BRUTA_SEMANAL = 1000.00
 META_RETENCAO_SEMANAL = 405.00
 
-# Percentuais de distribuição do valor reservado
 PERCENTUAL_RETENCAO = 0.405
 PERCENTUAL_PAI = 0.3079
 PERCENTUAL_GASOLINA = 0.2222
-PERCENTUAL_DESPESAS = 0.4699
+
+APLICATIVOS = ["Uber", "99", "Shopee", "iFood", "Rappi", "Outros"]
 
 
 # =========================================================
-# ESTILO VISUAL E RESPONSIVIDADE
+# DESIGN
 # =========================================================
 
 st.markdown(
@@ -96,24 +97,11 @@ st.markdown(
             overflow: hidden;
         }
 
-        div[data-baseweb="input"] input,
-        div[data-baseweb="select"] > div {
-            border-radius: 8px;
-        }
-
         .subtitulo {
             color: #94a3b8;
             font-size: 0.95rem;
             margin-top: -10px;
             margin-bottom: 20px;
-        }
-
-        .aviso {
-            background: #1b2229;
-            border: 1px solid #303943;
-            padding: 14px;
-            border-radius: 10px;
-            margin-bottom: 16px;
         }
 
         @media (max-width: 640px) {
@@ -138,12 +126,10 @@ st.markdown(
 
 
 # =========================================================
-# FUNÇÕES DE DADOS
+# DADOS
 # =========================================================
 
 def carregar_dados():
-    """Carrega o histórico e mantém compatibilidade com registros antigos."""
-
     if not os.path.exists(ARQUIVO_DADOS):
         return []
 
@@ -154,9 +140,11 @@ def carregar_dados():
         if not isinstance(dados, list):
             return []
 
-        # Registros antigos podem não ter o campo Hora.
+        # Compatibilidade com registros antigos.
         for registro in dados:
             registro.setdefault("Hora", "")
+            registro.setdefault("Aplicativo", "")
+            registro.setdefault("KM percorridos", None)
 
             for campo in [
                 "Bruto (R$)",
@@ -172,22 +160,15 @@ def carregar_dados():
     except (json.JSONDecodeError, OSError):
         st.error(
             "Não foi possível ler o arquivo de dados. "
-            "Verifique se o JSON está válido antes de continuar."
+            "Verifique se o arquivo JSON está válido."
         )
         return []
 
 
 def salvar_dados(dados):
-    """Salva o histórico no arquivo JSON."""
-
     try:
         with open(ARQUIVO_DADOS, "w", encoding="utf-8") as arquivo:
-            json.dump(
-                dados,
-                arquivo,
-                ensure_ascii=False,
-                indent=4
-            )
+            json.dump(dados, arquivo, ensure_ascii=False, indent=4)
         return True
 
     except OSError as erro:
@@ -196,13 +177,11 @@ def salvar_dados(dados):
 
 
 def converter_data(valor):
-    """Converte datas armazenadas para objetos date."""
-
-    if isinstance(valor, date) and not isinstance(valor, datetime):
-        return valor
-
     if isinstance(valor, datetime):
         return valor.date()
+
+    if isinstance(valor, date):
+        return valor
 
     try:
         return datetime.strptime(str(valor), "%Y-%m-%d").date()
@@ -214,8 +193,6 @@ def converter_data(valor):
 
 
 def formatar_moeda(valor):
-    """Formata um número como moeda brasileira."""
-
     valor = float(valor or 0)
     texto = f"{valor:,.2f}"
     texto = texto.replace(",", "X").replace(".", ",").replace("X", ".")
@@ -223,13 +200,6 @@ def formatar_moeda(valor):
 
 
 def calcular_corrida(bruto):
-    """
-    Calcula a retenção e a distribuição dos valores.
-
-    A retenção corresponde a 40,5% do valor bruto.
-    O restante é considerado lucro livre.
-    """
-
     bruto = max(float(bruto), 0.0)
 
     retencao = bruto * PERCENTUAL_RETENCAO
@@ -237,8 +207,6 @@ def calcular_corrida(bruto):
 
     pai = retencao * PERCENTUAL_PAI
     gasolina = retencao * PERCENTUAL_GASOLINA
-
-    # Usa a diferença para evitar problemas de arredondamento.
     despesas = retencao - pai - gasolina
 
     return {
@@ -251,11 +219,11 @@ def calcular_corrida(bruto):
 
 
 def criar_dataframe(dados):
-    """Prepara os registros para exibição e cálculos."""
-
     colunas = [
         "Data",
         "Hora",
+        "Aplicativo",
+        "KM percorridos",
         "Bruto (R$)",
         "Lucro Livre (R$)",
         "Pai (R$)",
@@ -270,37 +238,40 @@ def criar_dataframe(dados):
 
     for coluna in colunas:
         if coluna not in df.columns:
-            df[coluna] = "" if coluna in ["Data", "Hora"] else 0.0
+            df[coluna] = None if coluna == "KM percorridos" else (
+                "" if coluna in ["Data", "Hora", "Aplicativo"] else 0.0
+            )
 
     df = df[colunas].copy()
-
     df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
 
-    for coluna in colunas:
-        if coluna.endswith("(R$)"):
-            df[coluna] = pd.to_numeric(df[coluna], errors="coerce").fillna(0.0)
+    # KM antigos permanecem vazios; não são convertidos em zero.
+    df["KM percorridos"] = pd.to_numeric(
+        df["KM percorridos"], errors="coerce"
+    )
 
-    df = df.sort_values("Data", ascending=False, na_position="last")
-    return df
+    for coluna in [
+        "Bruto (R$)",
+        "Lucro Livre (R$)",
+        "Pai (R$)",
+        "Gasolina (R$)",
+        "Despesas Gerais (R$)"
+    ]:
+        df[coluna] = pd.to_numeric(
+            df[coluna], errors="coerce"
+        ).fillna(0.0)
+
+    return df.sort_values("Data", ascending=False, na_position="last")
 
 
 def obter_inicio_semana():
-    """Retorna a segunda-feira da semana atual."""
-
     hoje = date.today()
     return hoje - timedelta(days=hoje.weekday())
 
 
 def obter_resumo_semana(df):
-    """Retorna os totais da semana atual, de segunda a domingo."""
-
     if df.empty:
-        return {
-            "bruto": 0.0,
-            "lucro": 0.0,
-            "retencao": 0.0,
-            "quantidade": 0
-        }
+        return {"bruto": 0.0, "lucro": 0.0, "retencao": 0.0}
 
     inicio = obter_inicio_semana()
     fim = inicio + timedelta(days=6)
@@ -308,44 +279,37 @@ def obter_resumo_semana(df):
     datas = df["Data"].dt.date
     semana = df[(datas >= inicio) & (datas <= fim)]
 
+    retencao = semana[
+        ["Pai (R$)", "Gasolina (R$)", "Despesas Gerais (R$)"]
+    ].sum().sum()
+
     return {
         "bruto": float(semana["Bruto (R$)"].sum()),
         "lucro": float(semana["Lucro Livre (R$)"].sum()),
-        "retencao": float(
-            semana[
-                [
-                    "Pai (R$)",
-                    "Gasolina (R$)",
-                    "Despesas Gerais (R$)"
-                ]
-            ].sum().sum()
-        ),
-        "quantidade": len(semana)
+        "retencao": float(retencao)
     }
 
 
 def gerar_excel(df):
-    """Gera uma planilha Excel em memória para download."""
-
     planilha = df.copy()
 
     if "Data" in planilha.columns:
         planilha["Data"] = planilha["Data"].dt.strftime("%d/%m/%Y")
 
-    colunas_valores = [
+    for coluna in [
         "Bruto (R$)",
         "Lucro Livre (R$)",
         "Pai (R$)",
         "Gasolina (R$)",
         "Despesas Gerais (R$)"
-    ]
+    ]:
+        planilha[coluna] = pd.to_numeric(
+            planilha[coluna], errors="coerce"
+        ).fillna(0.0)
 
-    for coluna in colunas_valores:
-        if coluna in planilha.columns:
-            planilha[coluna] = pd.to_numeric(
-                planilha[coluna],
-                errors="coerce"
-            ).fillna(0.0)
+    planilha["KM percorridos"] = pd.to_numeric(
+        planilha["KM percorridos"], errors="coerce"
+    )
 
     saida = BytesIO()
 
@@ -362,21 +326,36 @@ def gerar_excel(df):
 
         for coluna in aba.columns:
             letra = coluna[0].column_letter
-            maior = max(
-                len(str(celula.value or "")) for celula in coluna
-            )
+            maior = max(len(str(c.value or "")) for c in coluna)
             aba.column_dimensions[letra].width = min(maior + 3, 30)
 
-        for coluna in colunas_valores:
-            if coluna in planilha.columns:
-                indice = planilha.columns.get_loc(coluna) + 1
-                letra = aba.cell(row=1, column=indice).column_letter
+        for coluna in [
+            "Bruto (R$)",
+            "Lucro Livre (R$)",
+            "Pai (R$)",
+            "Gasolina (R$)",
+            "Despesas Gerais (R$)"
+        ]:
+            indice = planilha.columns.get_loc(coluna) + 1
+            letra = aba.cell(row=1, column=indice).column_letter
 
-                for celula in aba[letra][1:]:
-                    celula.number_format = '"R$" #,##0.00'
+            for celula in aba[letra][1:]:
+                celula.number_format = '"R$" #,##0.00'
+
+        indice_km = planilha.columns.get_loc("KM percorridos") + 1
+        letra_km = aba.cell(row=1, column=indice_km).column_letter
+
+        for celula in aba[letra_km][1:]:
+            celula.number_format = "0.00"
 
     saida.seek(0)
     return saida.getvalue()
+
+
+def nome_aplicativo_selecionado(opcao, outro_nome):
+    if opcao == "Outros":
+        return outro_nome.strip()
+    return opcao
 
 
 # =========================================================
@@ -392,23 +371,12 @@ if "pagina" not in st.session_state:
 if "confirmar_limpeza" not in st.session_state:
     st.session_state.confirmar_limpeza = False
 
-if "registro_edicao" not in st.session_state:
-    st.session_state.registro_edicao = None
+if "confirmar_exclusao" not in st.session_state:
+    st.session_state.confirmar_exclusao = False
 
 
 def navegar(pagina):
     st.session_state.pagina = pagina
-
-
-def atualizar_registro(indice, registro):
-    dados = st.session_state.dados.copy()
-    dados[indice] = registro
-
-    if salvar_dados(dados):
-        st.session_state.dados = dados
-        st.session_state.registro_edicao = None
-        st.success("Registro atualizado com sucesso.")
-        st.rerun()
 
 
 # =========================================================
@@ -424,11 +392,7 @@ st.markdown(
 col1, col2 = st.columns(2)
 
 with col1:
-    if st.button(
-        "＋ Nova corrida",
-        type="primary",
-        use_container_width=True
-    ):
+    if st.button("＋ Nova corrida", type="primary", use_container_width=True):
         navegar("Nova corrida")
         st.rerun()
 
@@ -451,141 +415,155 @@ with col4:
 
 st.divider()
 
-
-# =========================================================
-# ATUALIZAÇÃO DOS DADOS PARA A TELA
-# =========================================================
-
 dados = st.session_state.dados
 df = criar_dataframe(dados)
 
 
 # =========================================================
-# TELA: NOVA CORRIDA
+# NOVA CORRIDA
 # =========================================================
 
 if st.session_state.pagina == "Nova corrida":
 
     st.header("Registrar nova corrida")
-    st.caption("Informe o valor recebido e quando a corrida aconteceu.")
+    st.caption("Registre os ganhos, o aplicativo e a distância percorrida.")
 
-    with st.form("form_nova_corrida", clear_on_submit=True):
+    col1, col2 = st.columns(2)
 
-        col1, col2 = st.columns(2)
+    with col1:
+        data_corrida = st.date_input(
+            "Data da corrida",
+            value=date.today(),
+            format="DD/MM/YYYY",
+            key="nova_data"
+        )
 
-        with col1:
-            data_corrida = st.date_input(
-                "Data da corrida",
-                value=date.today(),
-                format="DD/MM/YYYY"
-            )
+    with col2:
+        hora_corrida = st.time_input(
+            "Horário da corrida",
+            value=datetime.now().time().replace(second=0, microsecond=0),
+            format="24h",
+            key="nova_hora"
+        )
 
-        with col2:
-            # IMPORTANTE: use format="24h", não "HH:mm".
-            # O parâmetro step foi omitido para maior compatibilidade.
-            hora_corrida = st.time_input(
-                "Horário da corrida",
-                value=datetime.now().time().replace(
-                    second=0,
-                    microsecond=0
-                ),
-                format="24h"
-            )
+    aplicativo_opcao = st.selectbox(
+        "Aplicativo utilizado",
+        APLICATIVOS,
+        key="novo_aplicativo"
+    )
 
+    outro_aplicativo = ""
+
+    if aplicativo_opcao == "Outros":
+        outro_aplicativo = st.text_input(
+            "Digite o nome do aplicativo",
+            placeholder="Ex.: Loggi",
+            key="novo_outro_aplicativo"
+        )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
         bruto = st.number_input(
             "Valor bruto recebido (R$)",
             min_value=0.0,
             value=0.0,
             step=5.0,
-            format="%.2f"
+            format="%.2f",
+            key="novo_bruto"
         )
 
-        if bruto > 0:
-            previa = calcular_corrida(bruto)
-
-            st.markdown("#### Prévia da distribuição")
-
-            a, b = st.columns(2)
-
-            with a:
-                st.metric(
-                    "Lucro livre",
-                    formatar_moeda(previa["Lucro Livre (R$)"])
-                )
-                st.metric(
-                    "Pai",
-                    formatar_moeda(previa["Pai (R$)"])
-                )
-
-            with b:
-                st.metric(
-                    "Gasolina",
-                    formatar_moeda(previa["Gasolina (R$)"])
-                )
-                st.metric(
-                    "Despesas gerais",
-                    formatar_moeda(previa["Despesas Gerais (R$)"])
-                )
-
-        salvar_corrida = st.form_submit_button(
-            "Salvar corrida",
-            type="primary",
-            use_container_width=True
+    with col2:
+        km_percorridos = st.number_input(
+            "KM percorridos na corrida",
+            min_value=0.0,
+            value=0.0,
+            step=0.5,
+            format="%.2f",
+            help="Informe a distância percorrida nessa corrida.",
+            key="novo_km"
         )
 
-        if salvar_corrida:
-            if bruto <= 0:
-                st.error("Informe um valor maior que zero.")
-            else:
-                valores = calcular_corrida(bruto)
+    if bruto > 0:
+        previa = calcular_corrida(bruto)
 
-                novo_registro = {
-                    "Data": data_corrida.isoformat(),
-                    "Hora": hora_corrida.strftime("%H:%M"),
-                    **valores
-                }
+        st.subheader("Prévia da distribuição")
+        c1, c2 = st.columns(2)
 
-                novos_dados = st.session_state.dados.copy()
-                novos_dados.append(novo_registro)
+        with c1:
+            st.metric("Lucro livre", formatar_moeda(previa["Lucro Livre (R$)"]))
+            st.metric("Pai", formatar_moeda(previa["Pai (R$)"]))
 
-                if salvar_dados(novos_dados):
-                    st.session_state.dados = novos_dados
-                    st.success("Corrida registrada com sucesso.")
-                    st.rerun()
+        with c2:
+            st.metric("Gasolina", formatar_moeda(previa["Gasolina (R$)"]))
+            st.metric("Despesas gerais", formatar_moeda(previa["Despesas Gerais (R$)"]))
+
+        if km_percorridos > 0:
+            st.metric(
+                "Faturamento bruto por KM",
+                formatar_moeda(bruto / km_percorridos) + "/km"
+            )
+
+    if st.button("Salvar corrida", type="primary", use_container_width=True):
+
+        aplicativo = nome_aplicativo_selecionado(
+            aplicativo_opcao,
+            outro_aplicativo
+        )
+
+        if bruto <= 0:
+            st.error("Informe um valor bruto maior que zero.")
+
+        elif not aplicativo:
+            st.error("Digite o nome do aplicativo.")
+
+        else:
+            valores = calcular_corrida(bruto)
+
+            novo_registro = {
+                "Data": data_corrida.isoformat(),
+                "Hora": hora_corrida.strftime("%H:%M"),
+                "Aplicativo": aplicativo,
+                "KM percorridos": (
+                    round(km_percorridos, 2)
+                    if km_percorridos > 0 else None
+                ),
+                **valores
+            }
+
+            novos_dados = st.session_state.dados.copy()
+            novos_dados.append(novo_registro)
+
+            if salvar_dados(novos_dados):
+                st.session_state.dados = novos_dados
+                st.success("Corrida registrada com sucesso.")
+                st.rerun()
 
 
 # =========================================================
-# TELA: DASHBOARD
+# DASHBOARD
 # =========================================================
 
 elif st.session_state.pagina == "Dashboard":
 
     st.header("Dashboard")
-
     resumo = obter_resumo_semana(df)
 
-    bruto_total = (
-        float(df["Bruto (R$)"].sum()) if not df.empty else 0.0
-    )
-
-    lucro_total = (
-        float(df["Lucro Livre (R$)"].sum()) if not df.empty else 0.0
-    )
+    bruto_total = float(df["Bruto (R$)"].sum()) if not df.empty else 0.0
+    lucro_total = float(df["Lucro Livre (R$)"].sum()) if not df.empty else 0.0
 
     retencao_total = (
-        float(
-            df[
-                [
-                    "Pai (R$)",
-                    "Gasolina (R$)",
-                    "Despesas Gerais (R$)"
-                ]
-            ].sum().sum()
-        ) if not df.empty else 0.0
+        float(df[["Pai (R$)", "Gasolina (R$)", "Despesas Gerais (R$)"]].sum().sum())
+        if not df.empty else 0.0
+    )
+
+    km_total = (
+        float(df["KM percorridos"].sum(min_count=1))
+        if not df.empty and df["KM percorridos"].notna().any()
+        else 0.0
     )
 
     st.subheader("Resumo geral")
-
     c1, c2 = st.columns(2)
 
     with c1:
@@ -594,137 +572,79 @@ elif st.session_state.pagina == "Dashboard":
     with c2:
         st.metric("Lucro livre", formatar_moeda(lucro_total))
 
-    c3, c4 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-    with c3:
+    with c1:
         st.metric("Total reservado", formatar_moeda(retencao_total))
 
-    with c4:
-        st.metric("Corridas registradas", len(df))
+    with c2:
+        st.metric("KM registrados", f"{km_total:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
 
     st.divider()
-
     st.subheader("Semana atual")
 
-    inicio_semana = obter_inicio_semana()
-    fim_semana = inicio_semana + timedelta(days=6)
+    inicio = obter_inicio_semana()
+    fim = inicio + timedelta(days=6)
 
-    st.caption(
-        f"Período: {inicio_semana.strftime('%d/%m/%Y')} "
-        f"a {fim_semana.strftime('%d/%m/%Y')}"
-    )
+    st.caption(f"Período: {inicio.strftime('%d/%m/%Y')} a {fim.strftime('%d/%m/%Y')}")
 
     c1, c2 = st.columns(2)
 
     with c1:
-        st.metric(
-            "Bruto da semana",
-            formatar_moeda(resumo["bruto"]),
-            delta=f"{resumo['bruto'] - META_BRUTA_SEMANAL:.2f}".replace(
-                ".", ","
-            ) + " vs. meta"
-        )
+        st.metric("Bruto da semana", formatar_moeda(resumo["bruto"]))
 
     with c2:
-        st.metric(
-            "Lucro livre da semana",
-            formatar_moeda(resumo["lucro"])
-        )
-
-    progresso_bruto = min(
-        resumo["bruto"] / META_BRUTA_SEMANAL, 1.0
-    )
+        st.metric("Lucro livre da semana", formatar_moeda(resumo["lucro"]))
 
     st.caption("Progresso da meta bruta semanal")
-    st.progress(progresso_bruto)
-
-    st.caption(
-        f"{formatar_moeda(resumo['bruto'])} de "
-        f"{formatar_moeda(META_BRUTA_SEMANAL)}"
-    )
+    st.progress(min(resumo["bruto"] / META_BRUTA_SEMANAL, 1.0))
+    st.caption(f"{formatar_moeda(resumo['bruto'])} de {formatar_moeda(META_BRUTA_SEMANAL)}")
 
     st.caption("Progresso da meta de retenção semanal")
-    progresso_retencao = min(
-        resumo["retencao"] / META_RETENCAO_SEMANAL, 1.0
-    )
-    st.progress(progresso_retencao)
-
-    st.caption(
-        f"{formatar_moeda(resumo['retencao'])} de "
-        f"{formatar_moeda(META_RETENCAO_SEMANAL)}"
-    )
-
-    st.divider()
-
-    st.subheader("Distribuição dos valores")
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.metric(
-            "Para o pai",
-            formatar_moeda(
-                float(df["Pai (R$)"].sum()) if not df.empty else 0.0
-            )
-        )
-
-        st.metric(
-            "Gasolina",
-            formatar_moeda(
-                float(df["Gasolina (R$)"].sum()) if not df.empty else 0.0
-            )
-        )
-
-    with c2:
-        st.metric(
-            "Despesas gerais",
-            formatar_moeda(
-                float(df["Despesas Gerais (R$)"].sum())
-                if not df.empty else 0.0
-            )
-        )
-
-        st.metric(
-            "Retenção total",
-            formatar_moeda(retencao_total)
-        )
+    st.progress(min(resumo["retencao"] / META_RETENCAO_SEMANAL, 1.0))
+    st.caption(f"{formatar_moeda(resumo['retencao'])} de {formatar_moeda(META_RETENCAO_SEMANAL)}")
 
     if not df.empty:
         st.divider()
-        st.subheader("Ganhos por dia")
+        st.subheader("Distribuição dos valores")
 
-        df_grafico = df.dropna(subset=["Data"]).copy()
+        c1, c2 = st.columns(2)
 
-        if not df_grafico.empty:
-            df_grafico["Dia"] = df_grafico["Data"].dt.strftime("%d/%m")
-            ganhos_diarios = (
-                df_grafico.groupby("Dia")["Bruto (R$)"]
-                .sum()
-                .sort_index()
-            )
+        with c1:
+            st.metric("Para o pai", formatar_moeda(df["Pai (R$)"].sum()))
+            st.metric("Gasolina", formatar_moeda(df["Gasolina (R$)"].sum()))
 
-            st.bar_chart(ganhos_diarios)
+        with c2:
+            st.metric("Despesas gerais", formatar_moeda(df["Despesas Gerais (R$)"].sum()))
+            st.metric("Retenção total", formatar_moeda(retencao_total))
+
+        st.divider()
+        st.subheader("Ganhos por aplicativo")
+
+        por_app = (
+            df[df["Aplicativo"].fillna("").astype(str).str.strip() != ""]
+            .groupby("Aplicativo")["Bruto (R$)"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+
+        if not por_app.empty:
+            st.bar_chart(por_app)
+        else:
+            st.info("Os registros antigos ainda não possuem aplicativo informado.")
 
         st.subheader("Últimas corridas")
-
         ultimas = df.head(5).copy()
         ultimas["Data"] = ultimas["Data"].dt.strftime("%d/%m/%Y")
 
-        st.dataframe(
-            ultimas,
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(ultimas, use_container_width=True, hide_index=True)
 
     else:
-        st.info(
-            "Nenhuma corrida registrada ainda. "
-            "Acesse 'Nova corrida' para começar."
-        )
+        st.info("Nenhuma corrida registrada ainda. Acesse 'Nova corrida' para começar.")
 
 
 # =========================================================
-# TELA: HISTÓRICO
+# HISTÓRICO
 # =========================================================
 
 elif st.session_state.pagina == "Histórico":
@@ -735,9 +655,9 @@ elif st.session_state.pagina == "Histórico":
         st.info("Ainda não existem corridas registradas.")
 
     else:
-        col1, col2 = st.columns(2)
+        c1, c2 = st.columns(2)
 
-        with col1:
+        with c1:
             data_inicio = st.date_input(
                 "Data inicial",
                 value=date.today() - timedelta(days=30),
@@ -745,7 +665,7 @@ elif st.session_state.pagina == "Histórico":
                 format="DD/MM/YYYY"
             )
 
-        with col2:
+        with c2:
             data_fim = st.date_input(
                 "Data final",
                 value=date.today(),
@@ -758,17 +678,12 @@ elif st.session_state.pagina == "Histórico":
 
         else:
             datas = df["Data"].dt.date
-
-            df_filtrado = df[
-                (datas >= data_inicio) & (datas <= data_fim)
-            ].copy()
-
-            df_exibicao = df_filtrado.copy()
-            df_exibicao["Data"] = df_exibicao["Data"].dt.strftime(
-                "%d/%m/%Y"
-            )
+            df_filtrado = df[(datas >= data_inicio) & (datas <= data_fim)].copy()
 
             st.caption(f"{len(df_filtrado)} corrida(s) no período selecionado.")
+
+            df_exibicao = df_filtrado.copy()
+            df_exibicao["Data"] = df_exibicao["Data"].dt.strftime("%d/%m/%Y")
 
             st.dataframe(
                 df_exibicao,
@@ -777,22 +692,15 @@ elif st.session_state.pagina == "Histórico":
             )
 
             st.subheader("Totais do período")
-
             c1, c2 = st.columns(2)
 
             with c1:
-                st.metric(
-                    "Bruto",
-                    formatar_moeda(df_filtrado["Bruto (R$)"].sum())
-                )
+                st.metric("Bruto", formatar_moeda(df_filtrado["Bruto (R$)"].sum()))
 
             with c2:
-                st.metric(
-                    "Lucro livre",
-                    formatar_moeda(df_filtrado["Lucro Livre (R$)"].sum())
-                )
+                st.metric("Lucro livre", formatar_moeda(df_filtrado["Lucro Livre (R$)"].sum()))
 
-            # Exportação posicionada logo abaixo da tabela.
+            # O Excel inclui aplicativo e KM percorridos.
             st.download_button(
                 label="⬇ Exportar histórico para Excel",
                 data=gerar_excel(df_filtrado),
@@ -801,16 +709,13 @@ elif st.session_state.pagina == "Histórico":
                     f"{data_inicio.strftime('%Y%m%d')}_"
                     f"{data_fim.strftime('%Y%m%d')}.xlsx"
                 ),
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
 
 
 # =========================================================
-# TELA: GERENCIAR
+# GERENCIAR REGISTROS
 # =========================================================
 
 elif st.session_state.pagina == "Gerenciar":
@@ -821,20 +726,17 @@ elif st.session_state.pagina == "Gerenciar":
         st.info("Não existem registros para gerenciar.")
 
     else:
-        st.subheader("Editar ou excluir uma corrida")
-
-        # Cada opção inclui a posição original para alterar o registro correto.
         opcoes = []
 
         for indice, registro in enumerate(dados):
             data_registro = converter_data(registro.get("Data", ""))
-            hora_registro = registro.get("Hora", "--:--") or "--:--"
+            hora = registro.get("Hora", "") or "--:--"
+            aplicativo = registro.get("Aplicativo", "") or "App não informado"
             bruto_registro = float(registro.get("Bruto (R$)", 0.0) or 0.0)
 
             rotulo = (
-                f"{indice + 1}. "
-                f"{data_registro.strftime('%d/%m/%Y')} às {hora_registro} "
-                f"— {formatar_moeda(bruto_registro)}"
+                f"{indice + 1}. {data_registro.strftime('%d/%m/%Y')} "
+                f"{hora} — {aplicativo} — {formatar_moeda(bruto_registro)}"
             )
 
             opcoes.append((rotulo, indice))
@@ -846,105 +748,131 @@ elif st.session_state.pagina == "Gerenciar":
             key="registro_selecionado"
         )
 
-        indice_selecionado = escolha[1]
-        registro_selecionado = dados[indice_selecionado]
+        indice = escolha[1]
+        registro = dados[indice]
 
-        st.markdown("#### Dados da corrida")
+        st.subheader("Editar corrida")
 
-        with st.form("form_editar_corrida"):
+        app_atual = registro.get("Aplicativo", "") or ""
+        app_opcao_atual = app_atual if app_atual in APLICATIVOS[:-1] else "Outros"
 
-            col1, col2 = st.columns(2)
+        app_opcao_editada = st.selectbox(
+            "Aplicativo utilizado",
+            APLICATIVOS,
+            index=APLICATIVOS.index(app_opcao_atual),
+            key=f"app_editar_{indice}"
+        )
 
-            with col1:
-                data_atual = converter_data(
-                    registro_selecionado.get("Data", "")
-                )
+        outro_atual = app_atual if app_opcao_atual == "Outros" else ""
 
-                data_editada = st.date_input(
-                    "Data",
-                    value=data_atual,
-                    key=f"data_editar_{indice_selecionado}",
-                    format="DD/MM/YYYY"
-                )
+        if app_opcao_editada == "Outros":
+            outro_editado = st.text_input(
+                "Digite o nome do aplicativo",
+                value=outro_atual,
+                key=f"outro_editar_{indice}"
+            )
+        else:
+            outro_editado = ""
 
-            with col2:
-                hora_texto = registro_selecionado.get("Hora", "") or "00:00"
+        col1, col2 = st.columns(2)
 
-                try:
-                    hora_atual = datetime.strptime(
-                        hora_texto, "%H:%M"
-                    ).time()
-                except ValueError:
-                    hora_atual = time(0, 0)
-
-                hora_editada = st.time_input(
-                    "Horário",
-                    value=hora_atual,
-                    format="24h",
-                    key=f"hora_editar_{indice_selecionado}"
-                )
-
-            bruto_atual = float(
-                registro_selecionado.get("Bruto (R$)", 0.0) or 0.0
+        with col1:
+            data_editada = st.date_input(
+                "Data",
+                value=converter_data(registro.get("Data", "")),
+                key=f"data_editar_{indice}",
+                format="DD/MM/YYYY"
             )
 
+        with col2:
+            try:
+                hora_atual = datetime.strptime(
+                    registro.get("Hora", "") or "00:00",
+                    "%H:%M"
+                ).time()
+            except ValueError:
+                hora_atual = time(0, 0)
+
+            hora_editada = st.time_input(
+                "Horário",
+                value=hora_atual,
+                format="24h",
+                key=f"hora_editar_{indice}"
+            )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
             bruto_editado = st.number_input(
                 "Valor bruto (R$)",
                 min_value=0.0,
-                value=bruto_atual,
+                value=float(registro.get("Bruto (R$)", 0.0) or 0.0),
                 step=5.0,
                 format="%.2f",
-                key=f"bruto_editar_{indice_selecionado}"
+                key=f"bruto_editar_{indice}"
             )
 
-            salvar_edicao = st.form_submit_button(
-                "Salvar alterações",
-                type="primary",
-                use_container_width=True
+        with col2:
+            km_atual = registro.get("KM percorridos")
+            if km_atual is None or pd.isna(km_atual):
+                km_atual = 0.0
+
+            km_editado = st.number_input(
+                "KM percorridos",
+                min_value=0.0,
+                value=float(km_atual),
+                step=0.5,
+                format="%.2f",
+                key=f"km_editar_{indice}"
             )
 
-            if salvar_edicao:
-                if bruto_editado <= 0:
-                    st.error("O valor bruto precisa ser maior que zero.")
+        if st.button("Salvar alterações", type="primary", use_container_width=True):
 
-                else:
-                    novos_valores = calcular_corrida(bruto_editado)
+            aplicativo_editado = nome_aplicativo_selecionado(
+                app_opcao_editada,
+                outro_editado
+            )
 
-                    registro_atualizado = {
-                        "Data": data_editada.isoformat(),
-                        "Hora": hora_editada.strftime("%H:%M"),
-                        **novos_valores
-                    }
+            if bruto_editado <= 0:
+                st.error("O valor bruto precisa ser maior que zero.")
 
-                    atualizar_registro(
-                        indice_selecionado,
-                        registro_atualizado
-                    )
+            elif not aplicativo_editado:
+                st.error("Digite o nome do aplicativo.")
+
+            else:
+                valores = calcular_corrida(bruto_editado)
+
+                registro_atualizado = {
+                    "Data": data_editada.isoformat(),
+                    "Hora": hora_editada.strftime("%H:%M"),
+                    "Aplicativo": aplicativo_editado,
+                    "KM percorridos": round(km_editado, 2) if km_editado > 0 else None,
+                    **valores
+                }
+
+                novos_dados = dados.copy()
+                novos_dados[indice] = registro_atualizado
+
+                if salvar_dados(novos_dados):
+                    st.session_state.dados = novos_dados
+                    st.success("Registro atualizado com sucesso.")
+                    st.rerun()
 
         st.divider()
-
         st.subheader("Excluir uma corrida")
 
-        st.warning(
-            "A exclusão é permanente no arquivo de dados. "
-            "Confira a data e o valor antes de continuar."
-        )
-
-        if st.button(
-            "Excluir corrida selecionada",
-            use_container_width=True
-        ):
+        if st.button("Excluir corrida selecionada", use_container_width=True):
             st.session_state.confirmar_exclusao = True
 
-        if st.session_state.get("confirmar_exclusao", False):
-            st.error("Deseja realmente excluir a corrida selecionada?")
+        if st.session_state.confirmar_exclusao:
+            st.warning("Deseja realmente excluir a corrida selecionada?")
 
             c1, c2 = st.columns(2)
 
             with c1:
                 if st.button("Sim, excluir", type="primary"):
                     novos_dados = dados.copy()
-                    novos_dados.pop(indice_selecionado)
+                    novos_dados.pop(indice)
 
                     if salvar_dados(novos_dados):
                         st.session_state.dados = novos_dados
@@ -958,22 +886,18 @@ elif st.session_state.pagina == "Gerenciar":
                     st.rerun()
 
         st.divider()
-
         st.subheader("Limpar todo o histórico")
 
         st.warning(
-            "Esta ação remove todos os registros do arquivo JSON. "
-            "Se precisar deles, exporte o histórico para Excel antes."
+            "Essa ação remove todos os registros. "
+            "Exporte o histórico para Excel antes de continuar, se precisar de uma cópia."
         )
 
         if st.button("Limpar todo o histórico", use_container_width=True):
             st.session_state.confirmar_limpeza = True
 
         if st.session_state.confirmar_limpeza:
-            st.error(
-                "Confirma a exclusão de todas as corridas? "
-                "Essa ação não poderá ser desfeita."
-            )
+            st.error("Confirma a exclusão de todas as corridas?")
 
             c1, c2 = st.columns(2)
 
@@ -997,7 +921,4 @@ elif st.session_state.pagina == "Gerenciar":
 # =========================================================
 
 st.divider()
-
-st.caption(
-    "Finanças Bajaj • Controle pessoal de corridas e despesas"
-)
+st.caption("Finanças Bajaj • Controle pessoal de corridas e despesas")
