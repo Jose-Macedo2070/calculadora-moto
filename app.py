@@ -29,7 +29,7 @@ def salvar_banco(dados):
 # Carrega os lançamentos anteriores
 historico = carregar_banco()
 
-# --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO ---
+# --- FUNÇÃO PARA GERAR EXCEL ESTÉTICO CORRIGIDA ---
 def gerar_excel_estetico(dataframe):
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -63,7 +63,8 @@ def gerar_excel_estetico(dataframe):
         
         for col in worksheet.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
-            col_letter = get_column_letter(col.column)
+            # CORREÇÃO AQUI: Acessando a coluna a partir da primeira célula da tupla
+            col_letter = get_column_letter(col[0].column)
             worksheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
             
     buffer.seek(0)
@@ -190,7 +191,7 @@ if historico:
                 historico[id_selecionado].pop("Seguro/Reserva (R$)", None)
                 
                 salvar_banco(historico)
-                st.success("Registro updated!")
+                st.success("Registro atualizado!")
                 st.rerun()
                 
         with col_ex:
@@ -199,7 +200,7 @@ if historico:
             if st.button("🗑️ Excluir Item"):
                 historico.pop(id_selecionado)
                 salvar_banco(historico)
-                st.success("Registro apagado com sucesso!")
+                st.success("Registro apagado!")
                 st.rerun()
                 
     with aba_massa:
