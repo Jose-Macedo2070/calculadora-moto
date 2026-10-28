@@ -1,902 +1,1003 @@
-
+import streamlit as st
+import pandas as pd
 import json
 import os
-from datetime import date, datetime, time, timedelta
+
+from datetime import datetime, date, time, timedelta
 from io import BytesIO
 
-import pandas as pd
-import streamlit as st
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-
-
 # =========================================================
-# 1. CONFIGURAÇÕES
+# CONFIGURAÇÃO
 # =========================================================
 
 st.set_page_config(
     page_title="Finanças Bajaj",
     page_icon="🏍️",
     layout="centered",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="collapsed"
 )
 
-ARQUIVO_BD = "banco_entregas_bajaj.json"
+ARQUIVO_DADOS = "banco_entregas_bajaj.json"
 
 META_BRUTA_SEMANAL = 1000.00
-META_CUSTOS_SEMANAL = 405.00
+META_RETENCAO_SEMANAL = 405.00
 
-TAXA_RETENCAO = 0.405
-TAXA_LUCRO = 0.595
-
+# Percentuais de distribuição do valor reservado
+PERCENTUAL_RETENCAO = 0.405
 PERCENTUAL_PAI = 0.3079
 PERCENTUAL_GASOLINA = 0.2222
 PERCENTUAL_DESPESAS = 0.4699
 
-COLUNAS_VALORES = [
-    "Bruto (R$)",
-    "Lucro Livre (R$)",
-    "Pai (R$)",
-    "Gasolina (R$)",
-    "Despesas Gerais (R$)",
-]
-
-COLUNAS_HISTORICO = ["Data", "Hora"] + COLUNAS_VALORES
-
 
 # =========================================================
-# 2. ESTILO RESPONSIVO PARA CELULAR
+# ESTILO VISUAL E RESPONSIVIDADE
 # =========================================================
 
 st.markdown(
     """
     <style>
-    .block-container {
-        max-width: 1000px;
-        padding-top: 1.2rem;
-        padding-bottom: 2rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
+        .stApp {
+            background-color: #101418;
+            color: #f1f5f9;
+        }
 
-    div[data-testid="stMetric"] {
-        background: rgba(128, 128, 128, 0.07);
-        border: 1px solid rgba(128, 128, 128, 0.15);
-        padding: 12px;
-        border-radius: 12px;
-        overflow-wrap: anywhere;
-    }
+        [data-testid="stHeader"] {
+            background: rgba(16, 20, 24, 0.95);
+        }
 
-    div[data-testid="stMetricValue"] {
-        font-size: clamp(1.15rem, 4vw, 1.8rem);
-    }
-
-    div.stButton > button,
-    div.stDownloadButton > button,
-    div.stFormSubmitButton > button {
-        width: 100%;
-        min-height: 44px;
-        border-radius: 10px;
-        white-space: normal;
-    }
-
-    div[data-testid="stProgress"] {
-        margin: 8px 0 14px 0;
-    }
-
-    /* Evita que várias colunas fiquem apertadas no celular. */
-    @media (max-width: 640px) {
         .block-container {
-            padding-left: 0.75rem;
-            padding-right: 0.75rem;
-            padding-top: 0.8rem;
+            max-width: 1000px;
+            padding-top: 1.5rem;
+            padding-bottom: 2rem;
         }
 
-        div[data-testid="stHorizontalBlock"] {
-            flex-wrap: wrap;
-            gap: 0.65rem;
+        h1, h2, h3 {
+            color: #f8fafc !important;
         }
 
-        div[data-testid="stHorizontalBlock"] > div {
-            min-width: 100% !important;
-            flex: 1 1 100% !important;
+        [data-testid="stMetric"] {
+            background: #1b2229;
+            border: 1px solid #303943;
+            padding: 16px;
+            border-radius: 12px;
         }
 
-        h1 {
-            font-size: 1.65rem !important;
+        [data-testid="stMetricLabel"] {
+            color: #cbd5e1 !important;
         }
 
-        h2 {
-            font-size: 1.35rem !important;
+        [data-testid="stMetricValue"] {
+            color: #22c55e !important;
         }
 
-        h3 {
-            font-size: 1.15rem !important;
+        div.stButton > button,
+        div.stDownloadButton > button {
+            width: 100%;
+            min-height: 44px;
+            border-radius: 9px;
+            border: 1px solid #374151;
+            font-weight: 600;
         }
 
-        div[data-testid="stMetric"] {
-            padding: 10px;
+        div.stButton > button[kind="primary"] {
+            background-color: #16a34a;
+            color: white;
+            border: none;
         }
 
-        /* A tabela pode ser deslizada horizontalmente. */
-        div[data-testid="stDataFrame"] {
-            max-width: 100%;
+        div.stButton > button[kind="primary"]:hover {
+            background-color: #15803d;
+            color: white;
         }
-    }
+
+        [data-testid="stDataFrame"] {
+            border: 1px solid #303943;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        div[data-baseweb="input"] input,
+        div[data-baseweb="select"] > div {
+            border-radius: 8px;
+        }
+
+        .subtitulo {
+            color: #94a3b8;
+            font-size: 0.95rem;
+            margin-top: -10px;
+            margin-bottom: 20px;
+        }
+
+        .aviso {
+            background: #1b2229;
+            border: 1px solid #303943;
+            padding: 14px;
+            border-radius: 10px;
+            margin-bottom: 16px;
+        }
+
+        @media (max-width: 640px) {
+            .block-container {
+                padding-left: 1rem;
+                padding-right: 1rem;
+                padding-top: 1rem;
+            }
+
+            h1 {
+                font-size: 1.65rem !important;
+            }
+
+            [data-testid="stMetric"] {
+                padding: 12px;
+            }
+        }
     </style>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
 
 # =========================================================
-# 3. FUNÇÕES GERAIS
+# FUNÇÕES DE DADOS
 # =========================================================
 
-def moeda(valor):
-    """Formata valores no padrão brasileiro."""
+def carregar_dados():
+    """Carrega o histórico e mantém compatibilidade com registros antigos."""
 
-    texto = f"{float(valor):,.2f}"
-    texto = (
-        texto.replace(",", "X")
-        .replace(".", ",")
-        .replace("X", ".")
-    )
-    return f"R$ {texto}"
-
-
-def carregar_banco():
-    """Lê o histórico sem apagar arquivos com problemas."""
-
-    if not os.path.exists(ARQUIVO_BD):
+    if not os.path.exists(ARQUIVO_DADOS):
         return []
 
     try:
-        with open(ARQUIVO_BD, "r", encoding="utf-8") as arquivo:
+        with open(ARQUIVO_DADOS, "r", encoding="utf-8") as arquivo:
             dados = json.load(arquivo)
 
         if not isinstance(dados, list):
-            raise ValueError("O arquivo não contém uma lista de registros.")
+            return []
+
+        # Registros antigos podem não ter o campo Hora.
+        for registro in dados:
+            registro.setdefault("Hora", "")
+
+            for campo in [
+                "Bruto (R$)",
+                "Lucro Livre (R$)",
+                "Pai (R$)",
+                "Gasolina (R$)",
+                "Despesas Gerais (R$)"
+            ]:
+                registro.setdefault(campo, 0.0)
 
         return dados
 
-    except (json.JSONDecodeError, OSError, ValueError) as erro:
+    except (json.JSONDecodeError, OSError):
         st.error(
-            f"Não foi possível carregar o histórico: {erro}. "
-            "Verifique o arquivo JSON antes de continuar."
+            "Não foi possível ler o arquivo de dados. "
+            "Verifique se o JSON está válido antes de continuar."
         )
-        st.stop()
+        return []
 
 
-def salvar_banco(dados):
-    """Grava os dados usando um arquivo temporário."""
-
-    temporario = ARQUIVO_BD + ".tmp"
+def salvar_dados(dados):
+    """Salva o histórico no arquivo JSON."""
 
     try:
-        with open(temporario, "w", encoding="utf-8") as arquivo:
+        with open(ARQUIVO_DADOS, "w", encoding="utf-8") as arquivo:
             json.dump(
                 dados,
                 arquivo,
-                indent=4,
                 ensure_ascii=False,
+                indent=4
             )
-
-        os.replace(temporario, ARQUIVO_BD)
+        return True
 
     except OSError as erro:
-        if os.path.exists(temporario):
-            try:
-                os.remove(temporario)
-            except OSError:
-                pass
-
         st.error(f"Não foi possível salvar os dados: {erro}")
-        st.stop()
+        return False
 
 
-# =========================================================
-# 4. CÁLCULOS FINANCEIROS
-# =========================================================
+def converter_data(valor):
+    """Converte datas armazenadas para objetos date."""
 
-def calcular_registro(valor_bruto, data_corrida, hora_corrida):
-    """Calcula a distribuição financeira da corrida."""
+    if isinstance(valor, date) and not isinstance(valor, datetime):
+        return valor
 
-    valor_bruto = round(float(valor_bruto), 2)
-    retencao = valor_bruto * TAXA_RETENCAO
+    if isinstance(valor, datetime):
+        return valor.date()
 
-    if isinstance(hora_corrida, time):
-        hora_texto = hora_corrida.strftime("%H:%M")
-    else:
-        hora_texto = str(hora_corrida or "")
+    try:
+        return datetime.strptime(str(valor), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        try:
+            return datetime.fromisoformat(str(valor)).date()
+        except (ValueError, TypeError):
+            return date.today()
+
+
+def formatar_moeda(valor):
+    """Formata um número como moeda brasileira."""
+
+    valor = float(valor or 0)
+    texto = f"{valor:,.2f}"
+    texto = texto.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {texto}"
+
+
+def calcular_corrida(bruto):
+    """
+    Calcula a retenção e a distribuição dos valores.
+
+    A retenção corresponde a 40,5% do valor bruto.
+    O restante é considerado lucro livre.
+    """
+
+    bruto = max(float(bruto), 0.0)
+
+    retencao = bruto * PERCENTUAL_RETENCAO
+    lucro_livre = bruto - retencao
+
+    pai = retencao * PERCENTUAL_PAI
+    gasolina = retencao * PERCENTUAL_GASOLINA
+
+    # Usa a diferença para evitar problemas de arredondamento.
+    despesas = retencao - pai - gasolina
 
     return {
-        "Data": data_corrida.strftime("%d/%m/%Y"),
-        "Hora": hora_texto,
-        "Bruto (R$)": valor_bruto,
-        "Lucro Livre (R$)": round(
-            valor_bruto * TAXA_LUCRO, 2
-        ),
-        "Pai (R$)": round(
-            retencao * PERCENTUAL_PAI, 2
-        ),
-        "Gasolina (R$)": round(
-            retencao * PERCENTUAL_GASOLINA, 2
-        ),
-        "Despesas Gerais (R$)": round(
-            retencao * PERCENTUAL_DESPESAS, 2
-        ),
+        "Bruto (R$)": round(bruto, 2),
+        "Lucro Livre (R$)": round(lucro_livre, 2),
+        "Pai (R$)": round(pai, 2),
+        "Gasolina (R$)": round(gasolina, 2),
+        "Despesas Gerais (R$)": round(despesas, 2)
     }
 
 
-def normalizar_historico(dados):
-    """
-    Mantém a compatibilidade com registros antigos.
-    Horários inexistentes permanecem vazios.
-    """
+def criar_dataframe(dados):
+    """Prepara os registros para exibição e cálculos."""
 
-    resultado = []
+    colunas = [
+        "Data",
+        "Hora",
+        "Bruto (R$)",
+        "Lucro Livre (R$)",
+        "Pai (R$)",
+        "Gasolina (R$)",
+        "Despesas Gerais (R$)"
+    ]
 
-    for registro in dados:
-        try:
-            data_corrida = datetime.strptime(
-                registro.get("Data", ""),
-                "%d/%m/%Y",
-            ).date()
-        except (ValueError, TypeError):
-            raise ValueError(
-                "Foi encontrado um registro com data inválida."
-            )
+    if not dados:
+        return pd.DataFrame(columns=colunas)
 
-        try:
-            bruto = float(registro.get("Bruto (R$)", 0) or 0)
-        except (ValueError, TypeError):
-            raise ValueError(
-                "Foi encontrado um registro com valor inválido."
-            )
+    df = pd.DataFrame(dados)
 
-        hora_texto = str(registro.get("Hora", "") or "")
+    for coluna in colunas:
+        if coluna not in df.columns:
+            df[coluna] = "" if coluna in ["Data", "Hora"] else 0.0
 
-        try:
-            hora_texto = datetime.strptime(
-                hora_texto, "%H:%M"
-            ).strftime("%H:%M") if hora_texto else ""
-        except ValueError:
-            hora_texto = ""
+    df = df[colunas].copy()
 
-        novo = calcular_registro(
-            bruto,
-            data_corrida,
-            hora_texto,
-        )
+    df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
 
-        # Preserva os valores financeiros já registrados.
-        for coluna in COLUNAS_VALORES:
-            if coluna in registro:
-                try:
-                    novo[coluna] = float(registro[coluna] or 0)
-                except (ValueError, TypeError):
-                    raise ValueError(
-                        f"Valor inválido na coluna {coluna}."
-                    )
+    for coluna in colunas:
+        if coluna.endswith("(R$)"):
+            df[coluna] = pd.to_numeric(df[coluna], errors="coerce").fillna(0.0)
 
-        # Compatibilidade com categorias antigas.
-        if (
-            "Despesas Gerais (R$)" not in registro
-            and (
-                "Manutenção (R$)" in registro
-                or "Seguro/Reserva (R$)" in registro
-            )
-        ):
-            novo["Despesas Gerais (R$)"] = round(
-                float(registro.get("Manutenção (R$)", 0) or 0)
-                + float(registro.get("Seguro/Reserva (R$)", 0) or 0),
-                2,
-            )
-
-        resultado.append(novo)
-
-    return resultado
+    df = df.sort_values("Data", ascending=False, na_position="last")
+    return df
 
 
-def obter_semana_atual():
+def obter_inicio_semana():
+    """Retorna a segunda-feira da semana atual."""
+
     hoje = date.today()
-    inicio = hoje - timedelta(days=hoje.weekday())
+    return hoje - timedelta(days=hoje.weekday())
+
+
+def obter_resumo_semana(df):
+    """Retorna os totais da semana atual, de segunda a domingo."""
+
+    if df.empty:
+        return {
+            "bruto": 0.0,
+            "lucro": 0.0,
+            "retencao": 0.0,
+            "quantidade": 0
+        }
+
+    inicio = obter_inicio_semana()
     fim = inicio + timedelta(days=6)
-    return inicio, fim
+
+    datas = df["Data"].dt.date
+    semana = df[(datas >= inicio) & (datas <= fim)]
+
+    return {
+        "bruto": float(semana["Bruto (R$)"].sum()),
+        "lucro": float(semana["Lucro Livre (R$)"].sum()),
+        "retencao": float(
+            semana[
+                [
+                    "Pai (R$)",
+                    "Gasolina (R$)",
+                    "Despesas Gerais (R$)"
+                ]
+            ].sum().sum()
+        ),
+        "quantidade": len(semana)
+    }
 
 
-# =========================================================
-# 5. EXPORTAÇÃO EXCEL
-# =========================================================
+def gerar_excel(df):
+    """Gera uma planilha Excel em memória para download."""
 
-def gerar_excel(dataframe):
-    buffer = BytesIO()
+    planilha = df.copy()
 
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        dataframe.to_excel(
-            writer,
+    if "Data" in planilha.columns:
+        planilha["Data"] = planilha["Data"].dt.strftime("%d/%m/%Y")
+
+    colunas_valores = [
+        "Bruto (R$)",
+        "Lucro Livre (R$)",
+        "Pai (R$)",
+        "Gasolina (R$)",
+        "Despesas Gerais (R$)"
+    ]
+
+    for coluna in colunas_valores:
+        if coluna in planilha.columns:
+            planilha[coluna] = pd.to_numeric(
+                planilha[coluna],
+                errors="coerce"
+            ).fillna(0.0)
+
+    saida = BytesIO()
+
+    with pd.ExcelWriter(saida, engine="openpyxl") as escritor:
+        planilha.to_excel(
+            escritor,
             index=False,
-            sheet_name="Entregas",
+            sheet_name="Histórico"
         )
 
-        planilha = writer.sheets["Entregas"]
+        aba = escritor.sheets["Histórico"]
+        aba.freeze_panes = "A2"
+        aba.auto_filter.ref = aba.dimensions
 
-        fundo = PatternFill(
-            start_color="1B365D",
-            end_color="1B365D",
-            fill_type="solid",
-        )
-
-        fonte_cabecalho = Font(
-            name="Arial",
-            size=11,
-            bold=True,
-            color="FFFFFF",
-        )
-
-        fonte_dados = Font(
-            name="Arial",
-            size=10,
-            color="000000",
-        )
-
-        lado = Side(style="thin", color="D3D3D3")
-
-        borda = Border(
-            left=lado,
-            right=lado,
-            top=lado,
-            bottom=lado,
-        )
-
-        for celula in planilha[1]:
-            celula.fill = fundo
-            celula.font = fonte_cabecalho
-            celula.alignment = Alignment(
-                horizontal="center",
-                vertical="center",
+        for coluna in aba.columns:
+            letra = coluna[0].column_letter
+            maior = max(
+                len(str(celula.value or "")) for celula in coluna
             )
-            celula.border = borda
+            aba.column_dimensions[letra].width = min(maior + 3, 30)
 
-        for linha in planilha.iter_rows(min_row=2):
-            for celula in linha:
-                celula.font = fonte_dados
-                celula.alignment = Alignment(
-                    horizontal="center",
-                    vertical="center",
-                )
-                celula.border = borda
+        for coluna in colunas_valores:
+            if coluna in planilha.columns:
+                indice = planilha.columns.get_loc(coluna) + 1
+                letra = aba.cell(row=1, column=indice).column_letter
 
-                nome_coluna = planilha.cell(
-                    row=1,
-                    column=celula.column,
-                ).value
-
-                if nome_coluna in COLUNAS_VALORES:
+                for celula in aba[letra][1:]:
                     celula.number_format = '"R$" #,##0.00'
 
-        for coluna in planilha.columns:
-            tamanho = max(
-                len(str(celula.value or ""))
-                for celula in coluna
-            )
-
-            letra = get_column_letter(coluna[0].column)
-            planilha.column_dimensions[letra].width = max(
-                tamanho + 4, 12
-            )
-
-        planilha.freeze_panes = "A2"
-        planilha.auto_filter.ref = planilha.dimensions
-        planilha.row_dimensions[1].height = 25
-
-    buffer.seek(0)
-    return buffer
+    saida.seek(0)
+    return saida.getvalue()
 
 
 # =========================================================
-# 6. CARREGAR HISTÓRICO
+# ESTADO DA APLICAÇÃO
 # =========================================================
 
-try:
-    historico = normalizar_historico(carregar_banco())
-except (ValueError, TypeError, KeyError) as erro:
-    st.error(
-        f"O histórico possui registros incompatíveis: {erro}. "
-        "Faça uma cópia do JSON antes de corrigir os dados."
-    )
-    st.stop()
+if "dados" not in st.session_state:
+    st.session_state.dados = carregar_dados()
+
+if "pagina" not in st.session_state:
+    st.session_state.pagina = "Dashboard"
+
+if "confirmar_limpeza" not in st.session_state:
+    st.session_state.confirmar_limpeza = False
+
+if "registro_edicao" not in st.session_state:
+    st.session_state.registro_edicao = None
+
+
+def navegar(pagina):
+    st.session_state.pagina = pagina
+
+
+def atualizar_registro(indice, registro):
+    dados = st.session_state.dados.copy()
+    dados[indice] = registro
+
+    if salvar_dados(dados):
+        st.session_state.dados = dados
+        st.session_state.registro_edicao = None
+        st.success("Registro atualizado com sucesso.")
+        st.rerun()
 
 
 # =========================================================
-# 7. CABEÇALHO
+# CABEÇALHO E NAVEGAÇÃO
 # =========================================================
 
-st.title("🏍️ Gestão Financeira Bajaj")
-st.caption(
-    "Dominar 200 | Meta semanal: R$ 1.000,00 "
-    "| Retenção planejada: 40,5%"
+st.title("🏍️ Finanças Bajaj")
+st.markdown(
+    '<div class="subtitulo">Controle de corridas, ganhos e despesas</div>',
+    unsafe_allow_html=True
 )
 
+col1, col2 = st.columns(2)
 
-# =========================================================
-# 8. NAVEGAÇÃO
-# =========================================================
-
-TELAS = [
-    "Nova corrida",
-    "Dashboard",
-    "Histórico",
-    "Gerenciar",
-]
-
-if "tela_atual" not in st.session_state:
-    st.session_state.tela_atual = "Dashboard"
-
-st.markdown("### Menu")
-
-# O layout de duas colunas no desktop vira uma coluna
-# por botão em telas pequenas, por causa do CSS responsivo.
-coluna_esquerda, coluna_direita = st.columns(2)
-
-with coluna_esquerda:
+with col1:
     if st.button(
-        "➕ Nova corrida",
-        type=(
-            "primary"
-            if st.session_state.tela_atual == "Nova corrida"
-            else "secondary"
-        ),
-        use_container_width=True,
+        "＋ Nova corrida",
+        type="primary",
+        use_container_width=True
     ):
-        st.session_state.tela_atual = "Nova corrida"
+        navegar("Nova corrida")
         st.rerun()
 
-    if st.button(
-        "📊 Dashboard",
-        type=(
-            "primary"
-            if st.session_state.tela_atual == "Dashboard"
-            else "secondary"
-        ),
-        use_container_width=True,
-    ):
-        st.session_state.tela_atual = "Dashboard"
+with col2:
+    if st.button("▦ Dashboard", use_container_width=True):
+        navegar("Dashboard")
         st.rerun()
 
-with coluna_direita:
-    if st.button(
-        "📋 Histórico",
-        type=(
-            "primary"
-            if st.session_state.tela_atual == "Histórico"
-            else "secondary"
-        ),
-        use_container_width=True,
-    ):
-        st.session_state.tela_atual = "Histórico"
+col3, col4 = st.columns(2)
+
+with col3:
+    if st.button("▤ Histórico", use_container_width=True):
+        navegar("Histórico")
         st.rerun()
 
-    if st.button(
-        "⚙️ Gerenciar",
-        type=(
-            "primary"
-            if st.session_state.tela_atual == "Gerenciar"
-            else "secondary"
-        ),
-        use_container_width=True,
-    ):
-        st.session_state.tela_atual = "Gerenciar"
+with col4:
+    if st.button("⚙ Gerenciar", use_container_width=True):
+        navegar("Gerenciar")
         st.rerun()
 
 st.divider()
 
 
 # =========================================================
-# 9. TELA NOVA CORRIDA
+# ATUALIZAÇÃO DOS DADOS PARA A TELA
 # =========================================================
 
-if st.session_state.tela_atual == "Nova corrida":
+dados = st.session_state.dados
+df = criar_dataframe(dados)
 
-    st.subheader("📥 Lançar Nova Corrida")
 
-    st.write(
-        "Informe o valor recebido, a data e o horário."
-    )
+# =========================================================
+# TELA: NOVA CORRIDA
+# =========================================================
+
+if st.session_state.pagina == "Nova corrida":
+
+    st.header("Registrar nova corrida")
+    st.caption("Informe o valor recebido e quando a corrida aconteceu.")
 
     with st.form("form_nova_corrida", clear_on_submit=True):
 
-        valor_bruto = st.number_input(
+        col1, col2 = st.columns(2)
+
+        with col1:
+            data_corrida = st.date_input(
+                "Data da corrida",
+                value=date.today(),
+                format="DD/MM/YYYY"
+            )
+
+        with col2:
+            # IMPORTANTE: use format="24h", não "HH:mm".
+            # O parâmetro step foi omitido para maior compatibilidade.
+            hora_corrida = st.time_input(
+                "Horário da corrida",
+                value=datetime.now().time().replace(
+                    second=0,
+                    microsecond=0
+                ),
+                format="24h"
+            )
+
+        bruto = st.number_input(
             "Valor bruto recebido (R$)",
             min_value=0.0,
+            value=0.0,
             step=5.0,
-            format="%.2f",
+            format="%.2f"
         )
 
-        data_corrida = st.date_input(
-            "Data da corrida",
-            value=date.today(),
-            format="DD/MM/YYYY",
-        )
+        if bruto > 0:
+            previa = calcular_corrida(bruto)
 
-        hora_corrida = st.time_input(
-            "Horário da corrida",
-            value=datetime.now().time().replace(
-                second=0,
-                microsecond=0,
-            ),
-            step=timedelta(minutes=5),
-            format="HH:mm",
-        )
+            st.markdown("#### Prévia da distribuição")
 
-        salvar = st.form_submit_button(
-            "💾 Calcular e Salvar Corrida",
-            use_container_width=True,
-        )
+            a, b = st.columns(2)
 
-        if salvar:
-            if valor_bruto <= 0:
-                st.warning("Informe um valor maior que zero.")
-            else:
-                novo = calcular_registro(
-                    valor_bruto,
-                    data_corrida,
-                    hora_corrida,
+            with a:
+                st.metric(
+                    "Lucro livre",
+                    formatar_moeda(previa["Lucro Livre (R$)"])
+                )
+                st.metric(
+                    "Pai",
+                    formatar_moeda(previa["Pai (R$)"])
                 )
 
-                historico.append(novo)
-                salvar_banco(historico)
+            with b:
+                st.metric(
+                    "Gasolina",
+                    formatar_moeda(previa["Gasolina (R$)"])
+                )
+                st.metric(
+                    "Despesas gerais",
+                    formatar_moeda(previa["Despesas Gerais (R$)"])
+                )
 
-                st.success("Corrida registrada com sucesso!")
-                st.rerun()
+        salvar_corrida = st.form_submit_button(
+            "Salvar corrida",
+            type="primary",
+            use_container_width=True
+        )
 
-    st.info(
-        "O sistema calculará automaticamente seu lucro livre "
-        "e a divisão entre Pai, Gasolina e Despesas Gerais."
+        if salvar_corrida:
+            if bruto <= 0:
+                st.error("Informe um valor maior que zero.")
+            else:
+                valores = calcular_corrida(bruto)
+
+                novo_registro = {
+                    "Data": data_corrida.isoformat(),
+                    "Hora": hora_corrida.strftime("%H:%M"),
+                    **valores
+                }
+
+                novos_dados = st.session_state.dados.copy()
+                novos_dados.append(novo_registro)
+
+                if salvar_dados(novos_dados):
+                    st.session_state.dados = novos_dados
+                    st.success("Corrida registrada com sucesso.")
+                    st.rerun()
+
+
+# =========================================================
+# TELA: DASHBOARD
+# =========================================================
+
+elif st.session_state.pagina == "Dashboard":
+
+    st.header("Dashboard")
+
+    resumo = obter_resumo_semana(df)
+
+    bruto_total = (
+        float(df["Bruto (R$)"].sum()) if not df.empty else 0.0
     )
 
+    lucro_total = (
+        float(df["Lucro Livre (R$)"].sum()) if not df.empty else 0.0
+    )
 
-# =========================================================
-# 10. TELA DASHBOARD
-# =========================================================
+    retencao_total = (
+        float(
+            df[
+                [
+                    "Pai (R$)",
+                    "Gasolina (R$)",
+                    "Despesas Gerais (R$)"
+                ]
+            ].sum().sum()
+        ) if not df.empty else 0.0
+    )
 
-elif st.session_state.tela_atual == "Dashboard":
+    st.subheader("Resumo geral")
 
-    st.subheader("📊 Painel Financeiro")
+    c1, c2 = st.columns(2)
 
-    if not historico:
+    with c1:
+        st.metric("Total bruto", formatar_moeda(bruto_total))
+
+    with c2:
+        st.metric("Lucro livre", formatar_moeda(lucro_total))
+
+    c3, c4 = st.columns(2)
+
+    with c3:
+        st.metric("Total reservado", formatar_moeda(retencao_total))
+
+    with c4:
+        st.metric("Corridas registradas", len(df))
+
+    st.divider()
+
+    st.subheader("Semana atual")
+
+    inicio_semana = obter_inicio_semana()
+    fim_semana = inicio_semana + timedelta(days=6)
+
+    st.caption(
+        f"Período: {inicio_semana.strftime('%d/%m/%Y')} "
+        f"a {fim_semana.strftime('%d/%m/%Y')}"
+    )
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.metric(
+            "Bruto da semana",
+            formatar_moeda(resumo["bruto"]),
+            delta=f"{resumo['bruto'] - META_BRUTA_SEMANAL:.2f}".replace(
+                ".", ","
+            ) + " vs. meta"
+        )
+
+    with c2:
+        st.metric(
+            "Lucro livre da semana",
+            formatar_moeda(resumo["lucro"])
+        )
+
+    progresso_bruto = min(
+        resumo["bruto"] / META_BRUTA_SEMANAL, 1.0
+    )
+
+    st.caption("Progresso da meta bruta semanal")
+    st.progress(progresso_bruto)
+
+    st.caption(
+        f"{formatar_moeda(resumo['bruto'])} de "
+        f"{formatar_moeda(META_BRUTA_SEMANAL)}"
+    )
+
+    st.caption("Progresso da meta de retenção semanal")
+    progresso_retencao = min(
+        resumo["retencao"] / META_RETENCAO_SEMANAL, 1.0
+    )
+    st.progress(progresso_retencao)
+
+    st.caption(
+        f"{formatar_moeda(resumo['retencao'])} de "
+        f"{formatar_moeda(META_RETENCAO_SEMANAL)}"
+    )
+
+    st.divider()
+
+    st.subheader("Distribuição dos valores")
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.metric(
+            "Para o pai",
+            formatar_moeda(
+                float(df["Pai (R$)"].sum()) if not df.empty else 0.0
+            )
+        )
+
+        st.metric(
+            "Gasolina",
+            formatar_moeda(
+                float(df["Gasolina (R$)"].sum()) if not df.empty else 0.0
+            )
+        )
+
+    with c2:
+        st.metric(
+            "Despesas gerais",
+            formatar_moeda(
+                float(df["Despesas Gerais (R$)"].sum())
+                if not df.empty else 0.0
+            )
+        )
+
+        st.metric(
+            "Retenção total",
+            formatar_moeda(retencao_total)
+        )
+
+    if not df.empty:
+        st.divider()
+        st.subheader("Ganhos por dia")
+
+        df_grafico = df.dropna(subset=["Data"]).copy()
+
+        if not df_grafico.empty:
+            df_grafico["Dia"] = df_grafico["Data"].dt.strftime("%d/%m")
+            ganhos_diarios = (
+                df_grafico.groupby("Dia")["Bruto (R$)"]
+                .sum()
+                .sort_index()
+            )
+
+            st.bar_chart(ganhos_diarios)
+
+        st.subheader("Últimas corridas")
+
+        ultimas = df.head(5).copy()
+        ultimas["Data"] = ultimas["Data"].dt.strftime("%d/%m/%Y")
+
+        st.dataframe(
+            ultimas,
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
         st.info(
-            "Nenhuma corrida registrada. "
+            "Nenhuma corrida registrada ainda. "
             "Acesse 'Nova corrida' para começar."
         )
 
-    else:
-        df = pd.DataFrame(
-            historico,
-            columns=COLUNAS_HISTORICO,
-        )
-
-        bruto_total = df["Bruto (R$)"].sum()
-        lucro_total = df["Lucro Livre (R$)"].sum()
-
-        pai_total = df["Pai (R$)"].sum()
-        gasolina_total = df["Gasolina (R$)"].sum()
-        despesas_total = df["Despesas Gerais (R$)"].sum()
-
-        df["_Data"] = pd.to_datetime(
-            df["Data"],
-            format="%d/%m/%Y",
-            errors="coerce",
-        )
-
-        inicio, fim = obter_semana_atual()
-
-        semana = df[
-            (df["_Data"].dt.date >= inicio)
-            & (df["_Data"].dt.date <= fim)
-        ]
-
-        bruto_semana = semana["Bruto (R$)"].sum()
-        lucro_semana = semana["Lucro Livre (R$)"].sum()
-
-        custos_semana = (
-            semana["Pai (R$)"].sum()
-            + semana["Gasolina (R$)"].sum()
-            + semana["Despesas Gerais (R$)"].sum()
-        )
-
-        st.caption(
-            f"Semana atual: {inicio.strftime('%d/%m/%Y')} "
-            f"a {fim.strftime('%d/%m/%Y')}"
-        )
-
-        c1, c2 = st.columns(2)
-
-        c1.metric(
-            "Faturamento total",
-            moeda(bruto_total),
-        )
-
-        c2.metric(
-            "Lucro livre total",
-            moeda(lucro_total),
-        )
-
-        st.markdown("### 🔒 Caixinhas Reservadas")
-
-        c1, c2, c3 = st.columns(3)
-
-        c1.metric("👴 Pai", moeda(pai_total))
-        c2.metric("⛽ Gasolina", moeda(gasolina_total))
-        c3.metric("🛠️ Despesas", moeda(despesas_total))
-
-        st.divider()
-
-        st.markdown("### 🚀 Meta de Faturamento Semanal")
-
-        progresso_bruto = min(
-            bruto_semana / META_BRUTA_SEMANAL,
-            1.0,
-        )
-
-        st.progress(progresso_bruto)
-
-        st.metric(
-            "Faturamento da semana",
-            moeda(bruto_semana),
-        )
-
-        st.metric(
-            "Falta para atingir a meta",
-            moeda(max(META_BRUTA_SEMANAL - bruto_semana, 0)),
-        )
-
-        st.caption(
-            f"Progresso: {progresso_bruto:.1%} "
-            f"| Meta: {moeda(META_BRUTA_SEMANAL)}"
-        )
-
-        st.markdown("### 📈 Meta de Retenção e Custos")
-
-        progresso_custos = min(
-            custos_semana / META_CUSTOS_SEMANAL,
-            1.0,
-        )
-
-        st.progress(progresso_custos)
-
-        st.metric(
-            "Reservado nesta semana",
-            moeda(custos_semana),
-        )
-
-        st.metric(
-            "Falta reservar",
-            moeda(max(META_CUSTOS_SEMANAL - custos_semana, 0)),
-        )
-
-        st.caption(
-            f"Progresso: {progresso_custos:.1%} "
-            f"| Meta: {moeda(META_CUSTOS_SEMANAL)}"
-        )
-
-        st.metric(
-            "Lucro livre da semana",
-            moeda(lucro_semana),
-        )
-
-        if custos_semana >= META_CUSTOS_SEMANAL:
-            st.success("Meta semanal de custos atingida!")
-
 
 # =========================================================
-# 11. TELA HISTÓRICO E EXPORTAÇÃO
+# TELA: HISTÓRICO
 # =========================================================
 
-elif st.session_state.tela_atual == "Histórico":
+elif st.session_state.pagina == "Histórico":
 
-    st.subheader("📋 Histórico de Corridas")
+    st.header("Histórico de corridas")
 
-    if not historico:
-        st.info("Nenhum lançamento encontrado.")
+    if df.empty:
+        st.info("Ainda não existem corridas registradas.")
 
     else:
-        df = pd.DataFrame(
-            historico,
-            columns=COLUNAS_HISTORICO,
-        )
+        col1, col2 = st.columns(2)
 
-        df_ordenado = df.copy()
-
-        df_ordenado["_DataHora"] = pd.to_datetime(
-            df_ordenado["Data"]
-            + " "
-            + df_ordenado["Hora"].replace("", "00:00"),
-            format="%d/%m/%Y %H:%M",
-            errors="coerce",
-        )
-
-        df_ordenado = df_ordenado.sort_values(
-            "_DataHora",
-            ascending=False,
-            na_position="last",
-        )
-
-        df_exibicao = df_ordenado[COLUNAS_HISTORICO]
-
-        st.dataframe(
-            df_exibicao,
-            use_container_width=True,
-            hide_index=True,
-            height=400,
-            column_config={
-                "Data": st.column_config.TextColumn("Data"),
-                "Hora": st.column_config.TextColumn("Hora"),
-                **{
-                    coluna: st.column_config.NumberColumn(
-                        coluna,
-                        format="R$ %.2f",
-                    )
-                    for coluna in COLUNAS_VALORES
-                },
-            },
-        )
-
-        st.caption(
-            "No celular, deslize a tabela horizontalmente "
-            "para consultar todas as colunas."
-        )
-
-        # O botão fica diretamente abaixo da tabela.
-        st.markdown("#### 📥 Exportar Histórico")
-
-        excel = gerar_excel(df_exibicao)
-
-        st.download_button(
-            label="📊 Baixar Planilha Excel",
-            data=excel,
-            file_name=(
-                f"financeiro_bajaj_"
-                f"{datetime.now().strftime('%m_%Y')}.xlsx"
-            ),
-            mime=(
-                "application/vnd.openxmlformats-officedocument."
-                "spreadsheetml.sheet"
-            ),
-            use_container_width=True,
-        )
-
-
-# =========================================================
-# 12. TELA GERENCIAR
-# =========================================================
-
-elif st.session_state.tela_atual == "Gerenciar":
-
-    st.subheader("⚙️ Gerenciar Lançamentos")
-
-    if not historico:
-        st.info("Não existem lançamentos para gerenciar.")
-
-    else:
-        opcoes = [
-            (
-                f"ID {i} | {registro['Data']} "
-                f"{registro.get('Hora', '')} | "
-                f"{moeda(registro['Bruto (R$)'])}"
+        with col1:
+            data_inicio = st.date_input(
+                "Data inicial",
+                value=date.today() - timedelta(days=30),
+                key="filtro_inicio",
+                format="DD/MM/YYYY"
             )
-            for i, registro in enumerate(historico)
-        ]
 
-        selecionado = st.selectbox(
-            "Selecione uma corrida",
+        with col2:
+            data_fim = st.date_input(
+                "Data final",
+                value=date.today(),
+                key="filtro_fim",
+                format="DD/MM/YYYY"
+            )
+
+        if data_inicio > data_fim:
+            st.error("A data inicial não pode ser posterior à data final.")
+
+        else:
+            datas = df["Data"].dt.date
+
+            df_filtrado = df[
+                (datas >= data_inicio) & (datas <= data_fim)
+            ].copy()
+
+            df_exibicao = df_filtrado.copy()
+            df_exibicao["Data"] = df_exibicao["Data"].dt.strftime(
+                "%d/%m/%Y"
+            )
+
+            st.caption(f"{len(df_filtrado)} corrida(s) no período selecionado.")
+
+            st.dataframe(
+                df_exibicao,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.subheader("Totais do período")
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+                st.metric(
+                    "Bruto",
+                    formatar_moeda(df_filtrado["Bruto (R$)"].sum())
+                )
+
+            with c2:
+                st.metric(
+                    "Lucro livre",
+                    formatar_moeda(df_filtrado["Lucro Livre (R$)"].sum())
+                )
+
+            # Exportação posicionada logo abaixo da tabela.
+            st.download_button(
+                label="⬇ Exportar histórico para Excel",
+                data=gerar_excel(df_filtrado),
+                file_name=(
+                    f"historico_bajaj_"
+                    f"{data_inicio.strftime('%Y%m%d')}_"
+                    f"{data_fim.strftime('%Y%m%d')}.xlsx"
+                ),
+                mime=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+                use_container_width=True
+            )
+
+
+# =========================================================
+# TELA: GERENCIAR
+# =========================================================
+
+elif st.session_state.pagina == "Gerenciar":
+
+    st.header("Gerenciar registros")
+
+    if not dados:
+        st.info("Não existem registros para gerenciar.")
+
+    else:
+        st.subheader("Editar ou excluir uma corrida")
+
+        # Cada opção inclui a posição original para alterar o registro correto.
+        opcoes = []
+
+        for indice, registro in enumerate(dados):
+            data_registro = converter_data(registro.get("Data", ""))
+            hora_registro = registro.get("Hora", "--:--") or "--:--"
+            bruto_registro = float(registro.get("Bruto (R$)", 0.0) or 0.0)
+
+            rotulo = (
+                f"{indice + 1}. "
+                f"{data_registro.strftime('%d/%m/%Y')} às {hora_registro} "
+                f"— {formatar_moeda(bruto_registro)}"
+            )
+
+            opcoes.append((rotulo, indice))
+
+        escolha = st.selectbox(
+            "Selecione o registro",
             options=opcoes,
+            format_func=lambda item: item[0],
+            key="registro_selecionado"
         )
 
-        indice = int(
-            selecionado.split("|")[0].replace("ID", "").strip()
-        )
+        indice_selecionado = escolha[1]
+        registro_selecionado = dados[indice_selecionado]
 
-        registro = historico[indice]
-
-        st.markdown("### ✏️ Editar Corrida")
-
-        data_original = datetime.strptime(
-            registro["Data"],
-            "%d/%m/%Y",
-        ).date()
-
-        try:
-            hora_original = datetime.strptime(
-                registro.get("Hora", ""),
-                "%H:%M",
-            ).time()
-        except ValueError:
-            hora_original = time(0, 0)
+        st.markdown("#### Dados da corrida")
 
         with st.form("form_editar_corrida"):
 
-            valor_editado = st.number_input(
+            col1, col2 = st.columns(2)
+
+            with col1:
+                data_atual = converter_data(
+                    registro_selecionado.get("Data", "")
+                )
+
+                data_editada = st.date_input(
+                    "Data",
+                    value=data_atual,
+                    key=f"data_editar_{indice_selecionado}",
+                    format="DD/MM/YYYY"
+                )
+
+            with col2:
+                hora_texto = registro_selecionado.get("Hora", "") or "00:00"
+
+                try:
+                    hora_atual = datetime.strptime(
+                        hora_texto, "%H:%M"
+                    ).time()
+                except ValueError:
+                    hora_atual = time(0, 0)
+
+                hora_editada = st.time_input(
+                    "Horário",
+                    value=hora_atual,
+                    format="24h",
+                    key=f"hora_editar_{indice_selecionado}"
+                )
+
+            bruto_atual = float(
+                registro_selecionado.get("Bruto (R$)", 0.0) or 0.0
+            )
+
+            bruto_editado = st.number_input(
                 "Valor bruto (R$)",
                 min_value=0.0,
-                value=float(registro["Bruto (R$)"]),
+                value=bruto_atual,
                 step=5.0,
                 format="%.2f",
+                key=f"bruto_editar_{indice_selecionado}"
             )
 
-            data_editada = st.date_input(
-                "Data",
-                value=data_original,
-                format="DD/MM/YYYY",
-                key="data_edicao",
+            salvar_edicao = st.form_submit_button(
+                "Salvar alterações",
+                type="primary",
+                use_container_width=True
             )
 
-            hora_editada = st.time_input(
-                "Horário",
-                value=hora_original,
-                step=timedelta(minutes=5),
-                format="HH:mm",
-                key="hora_edicao",
-            )
+            if salvar_edicao:
+                if bruto_editado <= 0:
+                    st.error("O valor bruto precisa ser maior que zero.")
 
-            confirmar = st.form_submit_button(
-                "Salvar Alterações",
-                use_container_width=True,
-            )
-
-            if confirmar:
-                if valor_editado <= 0:
-                    st.warning("O valor deve ser maior que zero.")
                 else:
-                    historico[indice] = calcular_registro(
-                        valor_editado,
-                        data_editada,
-                        hora_editada,
+                    novos_valores = calcular_corrida(bruto_editado)
+
+                    registro_atualizado = {
+                        "Data": data_editada.isoformat(),
+                        "Hora": hora_editada.strftime("%H:%M"),
+                        **novos_valores
+                    }
+
+                    atualizar_registro(
+                        indice_selecionado,
+                        registro_atualizado
                     )
 
-                    salvar_banco(historico)
+        st.divider()
 
-                    st.success("Corrida atualizada!")
+        st.subheader("Excluir uma corrida")
+
+        st.warning(
+            "A exclusão é permanente no arquivo de dados. "
+            "Confira a data e o valor antes de continuar."
+        )
+
+        if st.button(
+            "Excluir corrida selecionada",
+            use_container_width=True
+        ):
+            st.session_state.confirmar_exclusao = True
+
+        if st.session_state.get("confirmar_exclusao", False):
+            st.error("Deseja realmente excluir a corrida selecionada?")
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+                if st.button("Sim, excluir", type="primary"):
+                    novos_dados = dados.copy()
+                    novos_dados.pop(indice_selecionado)
+
+                    if salvar_dados(novos_dados):
+                        st.session_state.dados = novos_dados
+                        st.session_state.confirmar_exclusao = False
+                        st.success("Corrida excluída.")
+                        st.rerun()
+
+            with c2:
+                if st.button("Cancelar exclusão"):
+                    st.session_state.confirmar_exclusao = False
                     st.rerun()
 
         st.divider()
 
-        st.markdown("### 🗑️ Excluir Corrida")
+        st.subheader("Limpar todo o histórico")
 
-        confirmar_exclusao = st.checkbox(
-            "Confirmo que desejo excluir somente esta corrida."
+        st.warning(
+            "Esta ação remove todos os registros do arquivo JSON. "
+            "Se precisar deles, exporte o histórico para Excel antes."
         )
 
-        if st.button(
-            "Excluir Corrida Selecionada",
-            disabled=not confirmar_exclusao,
-            use_container_width=True,
-        ):
-            historico.pop(indice)
-            salvar_banco(historico)
+        if st.button("Limpar todo o histórico", use_container_width=True):
+            st.session_state.confirmar_limpeza = True
 
-            st.success("Corrida excluída!")
-            st.rerun()
+        if st.session_state.confirmar_limpeza:
+            st.error(
+                "Confirma a exclusão de todas as corridas? "
+                "Essa ação não poderá ser desfeita."
+            )
 
-        st.divider()
+            c1, c2 = st.columns(2)
 
-    st.markdown("### 🚨 Limpar Todo o Histórico")
+            with c1:
+                if st.button("Sim, apagar tudo", type="primary"):
+                    if salvar_dados([]):
+                        st.session_state.dados = []
+                        st.session_state.confirmar_limpeza = False
+                        st.session_state.confirmar_exclusao = False
+                        st.success("Histórico apagado.")
+                        st.rerun()
 
-    st.warning(
-        "Esta ação remove permanentemente todos os registros "
-        "armazenados no arquivo JSON."
-    )
+            with c2:
+                if st.button("Cancelar limpeza"):
+                    st.session_state.confirmar_limpeza = False
+                    st.rerun()
 
-    confirmar_tudo = st.checkbox(
-        "Confirmo que desejo apagar todo o histórico."
-    )
 
-    if st.button(
-        "💥 Apagar Todo o Histórico",
-        disabled=not confirmar_tudo or not historico,
-        use_container_width=True,
-    ):
-        salvar_banco([])
-        st.success("Histórico apagado!")
-        st.rerun()
+# =========================================================
+# RODAPÉ
+# =========================================================
+
+st.divider()
+
+st.caption(
+    "Finanças Bajaj • Controle pessoal de corridas e despesas"
+)
